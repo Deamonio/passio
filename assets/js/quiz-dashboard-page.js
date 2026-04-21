@@ -25,9 +25,18 @@ function setDashboardUserName(name) {
   }
 }
 
+function setAdminEntryVisible(isAdmin) {
+  const adminBtn = $("btn-admin-entry");
+  if (!adminBtn) {
+    return;
+  }
+
+  adminBtn.style.display = isAdmin ? "inline-flex" : "none";
+}
+
 async function loadMe() {
   try {
-    const r = await fetch("/api/auth/me", { credentials: "same-origin" });
+    const r = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
     if (!r.ok) {
       location.href = "/pages/login.html";
       return;
@@ -35,7 +44,23 @@ async function loadMe() {
 
     const d = await r.json();
     const full = d.user?.name || d.user?.username || "학습자";
+    let isAdmin = Boolean(d.user?.isAdmin) || String(d.user?.username || "").toLowerCase() === "deamon";
+
+    // 운영 환경에서는 /api/admin/me 검증이 가장 정확하다.
+    if (!isAdmin) {
+      try {
+        const adminRes = await fetch("/api/admin/me", { credentials: "same-origin", cache: "no-store" });
+        if (adminRes.ok) {
+          const adminJson = await adminRes.json();
+          isAdmin = Boolean(adminJson?.ok) && Boolean(adminJson?.user?.isAdmin);
+        }
+      } catch (_) {
+        // /api/admin이 없는 로컬 단독 실행에서는 기존 판별값을 유지한다.
+      }
+    }
+
     setDashboardUserName(full);
+    setAdminEntryVisible(isAdmin);
   } catch (e) {
     location.href = "/pages/login.html";
   }

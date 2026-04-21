@@ -1,0 +1,57 @@
+# GitHub → Actions → deploy-web-static → Run workflow
+#
+# Repository Secrets:
+#   DEPLOY_SSH_PRIVATE_KEY  (전체 PEM)
+#   DEPLOY_HOST             (예: ubuntu@sikdorak.org)
+#   DEPLOY_PATH             (원격 프로젝트 루트, pages·assets 상위)
+# 선택:
+#   REMOTE_NGINX_RELOAD     (예: sudo nginx -s reload)
+
+name: deploy-web-static
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rsync-static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rsync pages, assets, nginx + optional reload
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REMOTE_NGINX_RELOAD: ${{ secrets.REMOTE_NGINX_RELOAD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SSH_PRIVATE_KEY:-}" ] || [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_PATH:-}" ]; then
+            echo "::error::Secrets DEPLOY_SSH_PRIVATE_KEY, DEPLOY_HOST, DEPLOY_PATH 를 설정하세요."
+            exit 1
+          fi
+          sudo apt-get update -qq && sudo apt-get install -qq -y rsync openssh-client
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          HOST="${DEPLOY_HOST#*@}"
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          RSYNC_E="ssh -i $HOME/.ssh/deploy_key -o StrictHostKeyChecking=accept-new"
+          rsync -avz --delete -e "$RSYNC_E" "./pages/" "${DEPLOY_HOST}:${DEPLOY_PATH}/pages/"
+          rsync -avz --delete -e "$RSYNC_E" "./assets/" "${DEPLOY_HOST}:${DEPLOY_PATH}/assets/"
+          rsync -avz -e "$RSYNC_E" \
+            "./nginx/nginx.conf" \
+            "./nginx/nginx-standalone.conf" \
+            "./nginx/security-headers.conf" \
+            "${DEPLOY_HOST}:${DEPLOY_PATH}/nginx/"
+          if [ -n "${REMOTE_NGINX_RELOAD:-}" ]; then
+            ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=accept-new \
+              "$DEPLOY_HOST" "cd '${DEPLOY_PATH}' && ${REMOTE_NGINX_RELOAD}"
+          fi
+
+      - name: Smoke (quiz-attempt 존재 여부)
+        run: |
+          code=$(curl -sS -o /dev/null -w "%{http_code}" "https://sikdorak.org/pages/quiz-attempt.html" || echo 000)
+          echo "HTTP quiz-attempt.html -> $code (200 이어야 함)"
+          curl -sS "https://sikdorak.org/api/health" | head -c 400
+          echo

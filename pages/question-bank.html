@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
-<link rel="stylesheet" href="/assets/css/passai.css?v=20260416d">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
 </head>
 <body>
 <div class="page">
@@ -37,18 +37,32 @@
     <section class="dash-headline">
       <span class="dash-pill">Question Bank</span>
       <h2><span id="user-name">학습자</span>님의 문제 은행</h2>
-      <p class="sub">자격증을 먼저 고르고 세부 과목으로 좁힌 뒤, 문제 목록에서 원하는 문항을 선택해 바로 풀 수 있습니다.</p>
+      <p class="sub">자격증을 먼저 고르고 세부 과목으로 좁힌 뒤, 문제 목록에서 원하는 문항을 선택해 바로 풀 수 있습니다. 각 카드의 <strong>AI 해설보기</strong>는 <strong>그 문항 하나만</strong> 해설 요청합니다 (묶음·전체 요청은 퀴즈 결과 화면에서 이용하세요).</p>
+      <div class="dash-mini-stats bank-mini-stats" aria-live="polite">
+        <div class="mini-stat">
+          <strong id="stat-total">0</strong>
+          <span>전체 문제</span>
+        </div>
+        <div class="mini-stat">
+          <strong id="stat-page">1 / 1</strong>
+          <span>현재 페이지</span>
+        </div>
+        <div class="mini-stat">
+          <strong id="stat-scope">전체</strong>
+          <span>필터 범위</span>
+        </div>
+      </div>
     </section>
 
     <section class="card panel bank-filter-panel">
       <div class="bank-filter-row">
-        <div class="field" style="margin-bottom:0;min-width:220px;">
+        <div class="field bank-field">
           <label for="certificate-filter">자격증 선택</label>
           <select id="certificate-filter" class="bank-select">
             <option value="">전체 자격증</option>
           </select>
         </div>
-        <div class="field" style="margin-bottom:0;min-width:220px;">
+        <div class="field bank-field">
           <label for="subject-filter">세부 과목 선택</label>
           <select id="subject-filter" class="bank-select">
             <option value="">전체 세부 과목</option>
@@ -67,6 +81,6 @@
     </section>
   </main>
 </div>
-<script src="/assets/js/question-bank-page.js?v=20260416f"></script>
+<script src="/assets/js/question-bank-page.js?v=20260420quizExplainGuide"></script>
 </body>
 </html>

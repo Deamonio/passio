@@ -45,12 +45,11 @@ async function submitSolve() {
   const wrongChoice = String($("wrong-choice").value || "").trim();
   const answerChoice = String($("answer-choice").value || "").trim();
 
-  if (!question) {
+  if (!question || !question.trim()) {
     showMessage("err", "문제를 입력해주세요.");
     return;
   }
-
-  if (options.some(x => !x)) {
+  if (!Array.isArray(options) || options.length !== 4 || options.some(x => !x || !x.trim())) {
     showMessage("err", "보기 4개를 모두 입력해주세요.");
     return;
   }
@@ -60,26 +59,37 @@ async function submitSolve() {
   showMessage("", "AI 해설 작업을 생성하는 중...");
 
   try {
-    const r = await fetch("/api/rag/jobs", {
+    const params = new URLSearchParams(location.search);
+    const fromQuiz = params.get("fromQuiz");
+    const payload = {
+      question,
+      options,
+      wrongChoice,
+      answerChoice,
+      rebuild_db: false
+    };
+    const r = await fetch("/api/rag2/jobs", {
       method: "POST",
-      credentials: "same-origin",
+      credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        question,
-        options,
-        wrongChoice,
-        answerChoice,
-        rebuild_db: false
-      })
+      body: JSON.stringify(payload)
     });
-
-    const d = await r.json();
+    let d = {};
+    try {
+      d = await r.json();
+    } catch {
+      d = {};
+    }
     if (!r.ok) {
-      showMessage("err", d.message || "AI 해설 요청 생성에 실패했습니다.");
+      let errMsg = d.detail || d.message || d.error;
+      if (!errMsg) errMsg = JSON.stringify(d);
+      showMessage("err", errMsg || "AI 해설 요청 생성에 실패했습니다.");
       return;
     }
-
-    location.href = `/pages/ai-loading.html?jobId=${encodeURIComponent(String(d.jobId))}`;
+    const jobId = d.jobId != null ? d.jobId : d.id;
+    let nextUrl = `/pages/ai-loading.html?jobId=${encodeURIComponent(String(jobId))}`;
+    if (fromQuiz) nextUrl += `&fromQuiz=${encodeURIComponent(fromQuiz)}`;
+    location.href = nextUrl;
   } catch (e) {
     showMessage("err", "네트워크 오류로 요청을 생성하지 못했습니다.");
   } finally {
@@ -93,6 +103,86 @@ async function init() {
 
   $("btn-logout").onclick = doLogout;
   $("btn-solve").onclick = submitSolve;
+
+  // fromQuiz 파라미터가 있으면 해당 퀴즈의 첫 문제 자동 채우기 및 바로 해설 생성
+  const params = new URLSearchParams(location.search);
+  const fromQuiz = params.get("fromQuiz");
+  if (fromQuiz) {
+    try {
+      const r = await fetch(`/api/quiz/history/${fromQuiz}`, { credentials: "same-origin" });
+      if (r.ok) {
+        const d = await r.json();
+        const attempt = d.attempt;
+        if (attempt && Array.isArray(attempt.answers) && attempt.answers.length > 0) {
+          const a = attempt.answers[0];
+          $("question-input").value = a.questionText || "";
+          ["opt-1","opt-2","opt-3","opt-4"].forEach((id,i)=>{$(id).value = (a.options && a.options[i]) || "";});
+          $("wrong-choice").value = (a.selectedIndex !== undefined && a.selectedIndex !== null && a.selectedIndex !== a.correctIndex && a.options) ? a.options[a.selectedIndex] : "";
+          $("answer-choice").value = (a.options && a.options[a.correctIndex]) || "";
+          // submitSolve에 attemptId, answerIndex 전달
+          setTimeout(()=>submitSolveWithLink(fromQuiz, 0), 400);
+        }
+      }
+    } catch(e) {}
+  }
+}
+
+// submitSolve를 확장하여 attemptId, answerIndex를 함께 전송
+async function submitSolveWithLink(attemptId, answerIndex) {
+  const question = String($("question-input").value || "").trim();
+  const options = readOptions();
+  const wrongChoice = String($("wrong-choice").value || "").trim();
+  const answerChoice = String($("answer-choice").value || "").trim();
+  if (!question || !question.trim()) {
+    showMessage("err", "문제를 입력해주세요.");
+    return;
+  }
+  if (!Array.isArray(options) || options.length !== 4 || options.some(x => !x || !x.trim())) {
+    showMessage("err", "보기 4개를 모두 입력해주세요.");
+    return;
+  }
+  const btn = $("btn-solve");
+  btn.disabled = true;
+  showMessage("", "AI 해설 작업을 생성하는 중...");
+  try {
+    const params = new URLSearchParams(location.search);
+    const fromQuiz = params.get("fromQuiz");
+    const payload = {
+      question,
+      options,
+      wrongChoice,
+      answerChoice,
+      attemptId,
+      answerIndex,
+      rebuild_db: false
+    };
+    const r = await fetch("/api/rag/jobs", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    let d = {};
+    try {
+      d = await r.json();
+    } catch {
+      d = {};
+    }
+    if (!r.ok) {
+      let errMsg = d.detail || d.message || d.error;
+      if (!errMsg) errMsg = JSON.stringify(d);
+      showMessage("err", errMsg || "AI 해설 요청 생성에 실패했습니다.");
+      return;
+    }
+    const jobId = d.jobId != null ? d.jobId : d.id;
+    let nextUrl = `/pages/ai-loading.html?jobId=${encodeURIComponent(String(jobId))}`;
+    if (fromQuiz) nextUrl += `&fromQuiz=${encodeURIComponent(fromQuiz)}`;
+    location.href = nextUrl;
+  } catch (e) {
+    showMessage("err", "네트워크 오류로 요청을 생성하지 못했습니다.");
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 init();

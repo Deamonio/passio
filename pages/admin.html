@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<title>Passio 관리자</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
+<style>
+  .admin-layout { display: flex; min-height: 100vh; }
+  .admin-sidebar {
+    width: 220px; flex-shrink: 0;
+    background: var(--navy); color: #fff;
+    display: flex; flex-direction: column;
+    padding: 0;
+    position: fixed; top: 0; left: 0; bottom: 0;
+    z-index: 100;
+  }
+  .admin-sidebar-logo {
+    display: flex; align-items: center; gap: 10px;
+    padding: 20px 20px 16px;
+    font-size: 1.1rem; font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    text-decoration: none; color: #fff;
+  }
+  .admin-sidebar-logo svg { width: 22px; height: 22px; fill: #7cb8ff; }
+  .admin-nav { flex: 1; padding: 12px 0; overflow-y: auto; }
+  .admin-nav-section { padding: 8px 20px 4px; font-size: .7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em; opacity: .5; }
+  .admin-nav-link {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 20px; cursor: pointer; font-size: .88rem;
+    color: rgba(255,255,255,.75); transition: background .15s, color .15s;
+    border: none; background: none; width: 100%; text-align: left;
+  }
+  .admin-nav-link:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .admin-nav-link.active { background: rgba(255,255,255,.15); color: #fff; font-weight: 600; }
+  .admin-nav-link svg { width: 16px; height: 16px; opacity: .7; flex-shrink: 0; }
+  .admin-main { margin-left: 220px; flex: 1; min-height: 100vh; background: var(--bg); }
+  .admin-topbar {
+    height: 56px; background: var(--surface);
+    border-bottom: 1px solid var(--bd);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 28px; position: sticky; top: 0; z-index: 50;
+  }
+  .admin-topbar-title { font-weight: 600; font-size: 1rem; color: var(--t1); }
+  .admin-content { padding: 28px; max-width: 1300px; }
+  .admin-tab-panel { display: none; }
+  .admin-tab-panel.active { display: block; }
+
+  /* Stats grid */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .stat-card { background: var(--surface); border-radius: var(--r); padding: 18px 20px; border: 1px solid var(--bd); }
+  .stat-card .stat-num { font-size: 2rem; font-weight: 700; color: var(--navy); line-height: 1; }
+  .stat-card .stat-label { font-size: .8rem; color: var(--t2); margin-top: 4px; }
+  .stat-card .stat-sub { font-size: .75rem; color: var(--t3); margin-top: 2px; }
+
+  /* Table */
+  .admin-table-wrap { background: var(--surface); border-radius: var(--r); border: 1px solid var(--bd); overflow: hidden; }
+  .admin-table-toolbar {
+    padding: 14px 18px; border-bottom: 1px solid var(--bd);
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .admin-table-toolbar h3 { font-size: .95rem; font-weight: 600; flex: 1; }
+  .admin-table { width: 100%; border-collapse: collapse; font-size: .845rem; }
+  .admin-table thead th {
+    background: var(--s1); padding: 9px 12px; text-align: left;
+    font-weight: 600; font-size: .78rem; color: var(--t2);
+    border-bottom: 1px solid var(--bd); white-space: nowrap;
+  }
+  .admin-table tbody tr { border-bottom: 1px solid var(--s1); cursor: pointer; transition: background .1s; }
+  .admin-table tbody tr:hover { background: var(--navy-l); }
+  .admin-table tbody tr.expanded { background: var(--amber-l); }
+  .admin-table tbody td { padding: 9px 12px; vertical-align: top; }
+  .admin-table .td-mono { font-family: monospace; font-size: .8rem; }
+  .admin-table .td-trunc { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .admin-table .td-nowrap { white-space: nowrap; }
+  .detail-row td { background: var(--s1) !important; cursor: default; padding: 0 !important; }
+  .detail-row:hover { background: var(--s1) !important; }
+  .detail-inner { padding: 16px 20px; }
+
+  /* JSON viewer */
+  .json-viewer { background: #1e2433; color: #cdd6f4; border-radius: 8px; padding: 14px;
+    font-family: monospace; font-size: .8rem; line-height: 1.6; overflow: auto;
+    max-height: 420px; white-space: pre-wrap; word-break: break-all; }
+  .json-key { color: #89b4fa; }
+  .json-str { color: #a6e3a1; }
+  .json-num { color: #fab387; }
+  .json-bool { color: #f38ba8; }
+  .json-null { color: #6c7086; }
+
+  /* Detail card */
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .detail-full { grid-column: 1 / -1; }
+  .detail-field { }
+  .detail-field label { display: block; font-size: .75rem; font-weight: 600; color: var(--t3); margin-bottom: 3px; text-transform: uppercase; letter-spacing: .04em; }
+  .detail-field .field-val { font-size: .88rem; color: var(--t1); word-break: break-word; }
+
+  /* Pagination */
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 14px; justify-content: flex-end; }
+  .pagination button { padding: 5px 12px; border: 1px solid var(--bd); border-radius: 6px; background: var(--surface); cursor: pointer; font-size: .83rem; }
+  .pagination button.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+  .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+  .pagination .page-info { font-size: .83rem; color: var(--t2); padding: 0 4px; }
+
+  /* Status pills */
+  .pill { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 99px; font-size: .75rem; font-weight: 600; }
+  .pill.ok { background: var(--grn-l); color: var(--grn); }
+  .pill.ng { background: var(--red-l); color: var(--red); }
+  .pill.pending { background: var(--amber-l); color: var(--amber); }
+  .pill.info { background: var(--navy-l); color: var(--navy); }
+
+  /* Modal */
+  .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000; align-items: center; justify-content: center; }
+  .modal-bg.open { display: flex; }
+  .modal { background: var(--surface); border-radius: var(--rl); padding: 28px; width: 440px; max-width: 95vw; box-shadow: var(--sh-h); }
+  .modal h3 { font-size: 1.05rem; font-weight: 600; margin-bottom: 18px; }
+  .form-field { margin-bottom: 14px; }
+  .form-field label { display: block; font-size: .82rem; font-weight: 600; color: var(--t2); margin-bottom: 5px; }
+  .form-field input { width: 100%; padding: 9px 12px; border: 1px solid var(--bd); border-radius: 8px; font-size: .9rem; background: var(--bg); }
+  .form-field input:focus { outline: none; border-color: var(--navy); }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+  /* Login gate */
+  .admin-login { max-width: 380px; margin: 80px auto; }
+  .admin-login h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 6px; }
+  .admin-login p { color: var(--t2); font-size: .88rem; margin-bottom: 24px; }
+
+  /* Input / search */
+  .input-sm { padding: 6px 11px; border: 1px solid var(--bd); border-radius: 7px; font-size: .85rem; background: var(--surface); }
+  .input-sm:focus { outline: none; border-color: var(--navy); }
+
+  /* RAG detail */
+  .rag-section { margin-bottom: 14px; }
+  .rag-section-title { font-size: .78rem; font-weight: 700; color: var(--t3); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .rag-body p { font-size: .88rem; line-height: 1.7; white-space: pre-wrap; }
+  .answer-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .answer-row { display: flex; gap: 8px; align-items: baseline; }
+  .answer-row .ar-label { font-size: .75rem; font-weight: 600; color: var(--t3); min-width: 64px; }
+  .answer-row .ar-val { font-size: .88rem; color: var(--t1); }
+  .answer-row .ar-val.correct { color: var(--grn); font-weight: 600; }
+  .answer-row .ar-val.wrong { color: var(--red); }
+
+  @media (max-width: 900px) {
+    .admin-layout { flex-direction: column; }
+    .admin-sidebar {
+      position: relative;
+      top: auto;
+      left: auto;
+      bottom: auto;
+      width: 100%;
+      height: auto;
+      max-height: none;
+      z-index: 40;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .admin-main { margin-left: 0; min-height: auto; }
+    .admin-nav {
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 8px 12px 12px;
+      max-height: none;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    .admin-nav-section {
+      flex: 1 0 100%;
+      padding: 6px 12px 2px;
+    }
+    .admin-nav-link {
+      flex: 0 0 auto;
+      width: auto;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .admin-content { padding: 18px 14px; }
+    .admin-topbar {
+      height: auto;
+      min-height: 52px;
+      flex-wrap: wrap;
+      row-gap: 8px;
+      padding: 10px 16px;
+    }
+    .detail-grid { grid-template-columns: 1fr; }
+    .admin-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Login Gate -->
+<div id="login-gate" style="display:none; padding: 40px 24px;">
+  <div class="admin-login card panel">
+    <h2>관리자 권한 필요</h2>
+    <p>로그인 세션을 확인하는 중입니다. `deamon` 계정 또는 관리자 권한 계정으로 로그인해야 접근할 수 있습니다.</p>
+    <div id="login-err" style="color:var(--red);font-size:.85rem;margin-bottom:12px;display:none;"></div>
+    <button class="btn btn-navy" id="btn-go-login" style="width:100%;">로그인 페이지로 이동</button>
+  </div>
+</div>
+
+<!-- Admin Layout -->
+<div class="admin-layout" id="admin-app" style="display:none;">
+  <aside class="admin-sidebar">
+    <a class="admin-sidebar-logo" href="#">
+      <svg viewBox="0 0 15 15"><path d="M7.5 1.5l2 4 4.4.6-3.2 3.1.8 4.4-4-2.1-4 2.1.8-4.4-3.2-3.1 4.4-.6z"/></svg>
+      Passio Admin
+    </a>
+    <nav class="admin-nav">
+      <div class="admin-nav-section">대시보드</div>
+      <button class="admin-nav-link active" data-tab="dashboard">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm0 6a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zm10 0a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"/></svg>
+        개요
+      </button>
+      <div class="admin-nav-section">데이터</div>
+      <button class="admin-nav-link" data-tab="users">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zm8 0a3 3 0 11-6 0 3 3 0 016 0zm-4.07 11c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+        사용자 관리
+      </button>
+      <button class="admin-nav-link" data-tab="logs">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V5zm11 1H6v8l4-2 4 2V6z" clip-rule="evenodd"/></svg>
+        API 로그
+      </button>
+      <button class="admin-nav-link" data-tab="rag">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+        AI 해설 Jobs
+      </button>
+      <button class="admin-nav-link" data-tab="quiz">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/></svg>
+        퀴즈 기록
+      </button>
+      <button class="admin-nav-link" data-tab="questions">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M7 3a1 1 0 000 2h6a1 1 0 100-2H7zM4 7a1 1 0 011-1h10a1 1 0 110 2H5a1 1 0 01-1-1zM2 11a2 2 0 012-2h12a2 2 0 012 2v4a2 2 0 01-2 2H4a2 2 0 01-2-2v-4z"/></svg>
+        문제 DB
+      </button>
+    </nav>
+    <div style="padding:16px 20px; border-top:1px solid rgba(255,255,255,.1);">
+      <button class="admin-nav-link" id="btn-admin-logout" style="width:100%; opacity:.7;">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h7a1 1 0 100-2H4V5h6a1 1 0 100-2H3zm11.293 3.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+        로그아웃
+      </button>
+    </div>
+  </aside>
+
+  <div class="admin-main">
+    <div class="admin-topbar">
+      <span class="admin-topbar-title" id="topbar-title">개요</span>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-size:.82rem;color:var(--t2);">Passio Admin Panel</span>
+        <span id="admin-perm-hint" style="font-size:.78rem;color:var(--t3);max-width:420px;"></span>
+      </div>
+    </div>
+
+    <div class="admin-content">
+
+      <!-- 대시보드 -->
+      <div class="admin-tab-panel active" id="panel-dashboard">
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-card"><div class="stat-num">-</div><div class="stat-label">로딩 중...</div></div>
+        </div>
+        <div class="card panel" style="padding:20px;">
+          <h3 style="font-size:.95rem;font-weight:600;margin-bottom:14px;">빠른 접근</h3>
+          <div class="admin-quick-nav" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button type="button" class="btn btn-out btn-sm" data-tab="users">사용자 관리 →</button>
+            <button type="button" class="btn btn-out btn-sm" data-tab="logs">API 로그 →</button>
+            <button type="button" class="btn btn-out btn-sm" data-tab="rag">AI 해설 Jobs →</button>
+            <button type="button" class="btn btn-out btn-sm" data-tab="quiz">퀴즈 기록 →</button>
+            <button type="button" class="btn btn-out btn-sm" data-tab="questions">문제 DB →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 사용자 관리 -->
+      <div class="admin-tab-panel" id="panel-users">
+        <div class="admin-table-wrap">
+          <div class="admin-table-toolbar">
+            <h3>사용자 목록</h3>
+            <input class="input-sm" id="user-search" placeholder="이름/이메일/아이디 검색…" style="width:200px;">
+            <button class="btn btn-sm btn-out" id="btn-refresh-users">새로고침</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="admin-table" id="users-table">
+              <thead><tr>
+                <th>ID</th><th>아이디(username)</th><th>이름</th><th>이메일</th>
+                <th>권한</th><th>관리 세부</th><th>학번</th><th>가입일</th><th>액션</th>
+              </tr></thead>
+              <tbody id="users-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- API 로그 -->
+      <div class="admin-tab-panel" id="panel-logs">
+        <div class="admin-table-wrap">
+          <div class="admin-table-toolbar">
+            <h3>API 요청 로그</h3>
+            <input class="input-sm" id="log-endpoint-filter" placeholder="엔드포인트 필터…" style="width:220px;">
+            <button class="btn btn-sm btn-navy" id="btn-search-logs">검색</button>
+            <button class="btn btn-sm btn-out" id="btn-refresh-logs">새로고침</button>
+            <span style="margin-left:auto;font-size:.83rem;color:var(--t2);" id="logs-count"></span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="admin-table" id="logs-table">
+              <thead><tr>
+                <th>ID</th><th>시각</th><th>Method</th><th>엔드포인트</th>
+                <th>상태</th><th>응답시간</th><th>사용자</th>
+              </tr></thead>
+              <tbody id="logs-tbody"></tbody>
+            </table>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--bd);">
+            <div class="pagination" id="logs-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RAG Jobs -->
+      <div class="admin-tab-panel" id="panel-rag">
+        <div class="admin-table-wrap">
+          <div class="admin-table-toolbar">
+            <h3>AI 해설 Jobs</h3>
+            <button class="btn btn-sm btn-out" id="btn-refresh-rag">새로고침</button>
+            <span style="margin-left:auto;font-size:.83rem;color:var(--t2);" id="rag-count"></span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="admin-table" id="rag-table">
+              <thead><tr>
+                <th>ID</th><th>생성일</th><th>사용자</th><th>상태</th>
+                <th>문제 (미리보기)</th><th>완료일</th><th>액션</th>
+              </tr></thead>
+              <tbody id="rag-tbody"></tbody>
+            </table>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--bd);">
+            <div class="pagination" id="rag-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 퀴즈 기록 -->
+      <div class="admin-tab-panel" id="panel-quiz">
+        <div class="admin-table-wrap">
+          <div class="admin-table-toolbar">
+            <h3>퀴즈 시도 기록</h3>
+            <button class="btn btn-sm btn-out" id="btn-refresh-quiz">새로고침</button>
+            <span style="margin-left:auto;font-size:.83rem;color:var(--t2);" id="quiz-count"></span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="admin-table" id="quiz-table">
+              <thead><tr>
+                <th>ID</th><th>생성일</th><th>사용자</th><th>총 문항</th>
+                <th>정답</th><th>점수</th><th>소요시간</th><th>Quiz UID</th><th>액션</th>
+              </tr></thead>
+              <tbody id="quiz-tbody"></tbody>
+            </table>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--bd);">
+            <div class="pagination" id="quiz-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 문제 DB -->
+      <div class="admin-tab-panel" id="panel-questions">
+        <div class="admin-table-wrap">
+          <div class="admin-table-toolbar">
+            <h3>문제 DB</h3>
+            <input class="input-sm" id="q-subject-filter" placeholder="과목 필터…" style="width:180px;">
+            <button class="btn btn-sm btn-navy" id="btn-search-questions">검색</button>
+            <button class="btn btn-sm btn-out" id="btn-refresh-questions">새로고침</button>
+            <span style="margin-left:auto;font-size:.83rem;color:var(--t2);" id="q-count"></span>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="admin-table" id="questions-table">
+              <thead><tr>
+                <th>ID</th><th>과목</th><th>문제</th>
+                <th>①</th><th>②</th><th>③</th><th>④</th><th>정답</th>
+              </tr></thead>
+              <tbody id="questions-tbody"></tbody>
+            </table>
+          </div>
+          <div style="padding:12px 18px;border-top:1px solid var(--bd);">
+            <div class="pagination" id="q-pagination"></div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- admin-content -->
+  </div><!-- admin-main -->
+</div><!-- admin-layout -->
+
+<!-- 사용자 수정 모달 -->
+<div class="modal-bg" id="modal-edit-user">
+  <div class="modal" style="width:min(560px,96vw);max-width:96vw;">
+    <h3>사용자 수정</h3>
+    <input type="hidden" id="edit-user-id">
+    <div class="form-field">
+      <label>아이디 (username)</label>
+      <input type="text" id="edit-username" placeholder="변경 시 입력">
+    </div>
+    <div class="form-field">
+      <label>이름</label>
+      <input type="text" id="edit-name" placeholder="변경 시 입력">
+    </div>
+    <div class="form-field">
+      <label>이메일</label>
+      <input type="email" id="edit-email" placeholder="변경 시 입력">
+    </div>
+    <div class="form-field">
+      <label>새 비밀번호</label>
+      <input type="password" id="edit-password" placeholder="변경 시 입력">
+    </div>
+    <div class="form-field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" id="edit-is-admin" style="width:16px;height:16px;">
+        관리자 권한 부여
+      </label>
+    </div>
+    <div class="form-field" id="wrap-edit-admin-perms">
+      <label>관리자 세부 권한 (JSON)</label>
+      <p class="muted" style="font-size:.78rem;margin:0 0 6px;line-height:1.4;">비우면 DB 기본(전역 기본과 동일)으로 둡니다. 예: <code>{"rag":{"read":true,"delete":false}}</code></p>
+      <textarea id="edit-admin-permissions" rows="7" style="width:100%;font-family:monospace;font-size:.78rem;border-radius:8px;padding:8px;border:1px solid var(--bd);resize:vertical;" placeholder="비우면 기본 권한"></textarea>
+    </div>
+    <div id="edit-err" style="color:var(--red);font-size:.85rem;margin-top:4px;display:none;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-out btn-sm" id="btn-edit-cancel">취소</button>
+      <button class="btn btn-navy btn-sm" id="btn-edit-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 사용자 삭제 확인 모달 -->
+<div class="modal-bg" id="modal-delete-user">
+  <div class="modal">
+    <h3>사용자 삭제</h3>
+    <p id="delete-confirm-msg" style="margin-bottom:20px;color:var(--t1);font-size:.92rem;"></p>
+    <div class="modal-actions">
+      <button class="btn btn-out btn-sm" id="btn-delete-cancel">취소</button>
+      <button class="btn btn-sm" style="background:var(--red);color:#fff;" id="btn-delete-confirm">삭제</button>
+    </div>
+  </div>
+</div>
+
+<script src="/assets/js/admin-page.js?v=20260419adminFix"></script>
+</body>
+</html>

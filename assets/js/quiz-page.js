@@ -163,12 +163,12 @@ function showResult() {
   const total = ST.qs.length;
   let ok = 0;
   ST.qs.forEach((q, i) => { if (ST.ans[i] === q.answer) ok += 1; });
-  const score = Math.round((ok / total) * 100);
+  const wrongCount = total - ok;
 
-  $('score').textContent = `${score}점`;
-  $('score-msg').textContent = score >= 80 ? '훌륭합니다! 합격권입니다.' : score >= 60 ? '좋아요! 오답 복습하면 더 올라갑니다.' : '기초부터 다시 점검해봐요.';
+  $('score').textContent = total === 1 ? (wrongCount === 0 ? '정답' : '오답') : (wrongCount === 0 ? '전체 정답' : `오답 ${wrongCount}개`);
+  $('score-msg').textContent = total === 1 ? (wrongCount === 0 ? '정확하게 맞혔어요.' : '틀린 선지를 다시 확인해봐요.') : wrongCount === 0 ? '모든 문제를 맞혔습니다.' : '틀린 문제 중심으로 다시 보면 효율적입니다.';
   $('score-ok').textContent = `정답 ${ok}개`;
-  $('score-ng').textContent = `오답 ${total - ok}개`;
+  $('score-ng').textContent = `오답 ${wrongCount}개`;
 
   const spent = Math.floor((Date.now() - ST.startedAt) / 1000);
   const m = String(Math.floor(spent / 60)).padStart(2, '0');
@@ -179,18 +179,63 @@ function showResult() {
   list.innerHTML = '';
   ST.qs.forEach((q, i) => {
     const isOk = ST.ans[i] === q.answer;
-    const my = q.options[ST.ans[i]] || '미선택';
-    const correct = q.options[q.answer];
+    const selectedIndex = Number.isInteger(ST.ans[i]) ? ST.ans[i] : null;
     const el = document.createElement('div');
     el.className = `card answer-item ${isOk ? 'ok' : 'ng'}`;
-    el.innerHTML = `
-      <div class='answer-subject'>${subjectIcon(q.subject)} ${q.subject}</div>
-      <div class='answer-q'>${i + 1}. ${q.question}</div>
-      <div class='tags'>
-        <span class='tag ${isOk ? 'ok' : 'ng'}'>내 답: ${my}</span>
-        ${isOk ? '' : `<span class='tag ok'>정답: ${correct}</span>`}
-      </div>
-    `;
+
+    const subject = document.createElement('div');
+    subject.className = 'answer-subject';
+    subject.textContent = `${subjectIcon(q.subject)} ${q.subject}`;
+
+    const question = document.createElement('div');
+    question.className = 'answer-q';
+    question.textContent = `${i + 1}. ${q.question}`;
+
+    const options = document.createElement('div');
+    options.className = 'result-options';
+
+    q.options.forEach((opt, idx) => {
+      const optionEl = document.createElement('div');
+      optionEl.className = 'result-option';
+
+      if (idx === q.answer) {
+        optionEl.classList.add('correct');
+      }
+      if (selectedIndex === idx) {
+        optionEl.classList.add('selected');
+      }
+      if (selectedIndex === idx && idx !== q.answer) {
+        optionEl.classList.add('wrong');
+      }
+
+      const badge = document.createElement('span');
+      badge.className = 'result-option-tag';
+      badge.textContent = ['A', 'B', 'C', 'D'][idx] || String(idx + 1);
+
+      const text = document.createElement('span');
+      text.className = 'result-option-text';
+      text.textContent = opt;
+
+      optionEl.appendChild(badge);
+      optionEl.appendChild(text);
+
+      if (idx === q.answer || selectedIndex === idx) {
+        const state = document.createElement('span');
+        state.className = 'result-option-state';
+        if (idx === q.answer) {
+          state.textContent = '정답';
+        } else if (selectedIndex === idx) {
+          state.textContent = '내 선택';
+        }
+        optionEl.appendChild(state);
+      }
+
+      options.appendChild(optionEl);
+    });
+
+    el.appendChild(subject);
+    el.appendChild(question);
+    el.appendChild(options);
     list.appendChild(el);
   });
 }

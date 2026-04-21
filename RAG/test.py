@@ -11,10 +11,10 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter
 
 # --- 1. 환경 설정 ---
 OLLAMA_HOST = "http://100.79.44.109:11434"
-OLLAMA_MODEL = "gemma:latest"
+OLLAMA_MODEL = "gemma4-e4b:latest"
 OLLAMA_EMBED_MODEL = "bge-m3:latest"
 CHROMA_DB_DIR = "./chroma_db_v18_final" # 버전 업그레이드
-PDF_PATH = "네트워크관리사-압축됨.pdf"
+PDF_PATH = "네트워크관리사.pdf"
 MD_PATH = "theory_only.md"
 
 # --- 2. [데이터 보강] 누락된 키워드 중심 서술형 지식 주입 ---

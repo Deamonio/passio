@@ -1,11 +1,2 @@
-module.exports = {
-  apps: [
-    {
-      name: "rag-api",
-      script: "/home/ubuntu/sikdorak/python_api/start.sh",
-      interpreter: "bash",
-      restart_delay: 3000,
-      max_restarts: 5
-    }
-  ]
-};
+/** @deprecated 루트 `ecosystem.config.js` 사용 권장 (Node+rag-api 함께 watch) */
+module.exports = require("../ecosystem.config.js");

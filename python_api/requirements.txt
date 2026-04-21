@@ -8,3 +8,5 @@ langchain-ollama==0.3.2
 langchain-chroma==0.2.4
 langchain-text-splitters==0.3.8
 chromadb>=1.0.9
+# 로깅
+asyncpg==0.30.0

@@ -1,5 +1,14 @@
+/**
+ * PostgreSQL 접근 계층 (Node / passio-node)
+ *
+ * - `initDatabase()`에서 테이블/인덱스를 “있으면 유지, 없으면 생성” 형태로 보강
+ * - 퀴즈 세션, 문제은행, RAG job, API 로그 등이 여기서 정의·조회됨
+ *
+ * 스키마 상세는 코드 내 SQL과 함께 보는 것이 가장 정확합니다.
+ * 아키텍처 개요: `docs/SYSTEM-ARCHITECTURE.md`
+ */
 const { Pool } = require("pg");
-const bcrypt = require("bcryptjs");
+const bcrypt = require("bcrypt");
 const crypto = require("node:crypto");
 
 const DATABASE_URL =
@@ -23,9 +32,12 @@ async function initDatabase() {
 
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT");
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS student_number TEXT");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_permissions JSONB");
   await pool.query(
     "CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique_idx ON users (username) WHERE username IS NOT NULL"
   );
+  await pool.query("UPDATE users SET is_admin = TRUE WHERE lower(username) = 'deamon'");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS refresh_tokens (
@@ -116,6 +128,8 @@ async function initDatabase() {
   `);
   await pool.query("CREATE INDEX IF NOT EXISTS rag_solve_jobs_user_idx ON rag_solve_jobs (user_id, created_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS rag_solve_jobs_status_idx ON rag_solve_jobs (status, created_at DESC)");
+  await pool.query("ALTER TABLE rag_solve_jobs ADD COLUMN IF NOT EXISTS quiz_attempt_id BIGINT");
+  await pool.query("ALTER TABLE rag_solve_jobs ADD COLUMN IF NOT EXISTS quiz_attempt_answer_index INTEGER");
 
   // Legacy rows may contain deleted/invalid question ids; null them before adding FK.
   await pool.query(`
@@ -148,6 +162,25 @@ async function initDatabase() {
   await pool.query("CREATE INDEX IF NOT EXISTS quiz_attempts_user_idx ON quiz_attempts (user_id, created_at DESC)");
   await pool.query("CREATE INDEX IF NOT EXISTS quiz_attempt_answers_attempt_idx ON quiz_attempt_answers (attempt_id)");
   await pool.query("CREATE INDEX IF NOT EXISTS quiz_attempt_answers_question_idx ON quiz_attempt_answers (question_id)");
+
+  // API 요청/응답 로깅 테이블 (논문 데이터 수집용)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS api_request_logs (
+      id BIGSERIAL PRIMARY KEY,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      request_payload JSONB,
+      response_payload JSONB,
+      status_code INTEGER,
+      error_message TEXT,
+      response_time_ms INTEGER,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS api_request_logs_endpoint_idx ON api_request_logs (endpoint, created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS api_request_logs_user_idx ON api_request_logs (user_id, created_at DESC)");
+  await pool.query("CREATE INDEX IF NOT EXISTS api_request_logs_created_idx ON api_request_logs (created_at DESC)");
 
   await ensureUsernamesForLegacyUsers();
 }
@@ -396,7 +429,7 @@ async function findUserByUsername(username) {
 
 async function findUserById(id) {
   const result = await pool.query(
-    "SELECT id, username, email, name, student_number AS \"studentNumber\" FROM users WHERE id = $1",
+    "SELECT id, username, email, name, student_number AS \"studentNumber\", is_admin AS \"isAdmin\" FROM users WHERE id = $1",
     [id]
   );
   return result.rows[0] || null;
@@ -605,18 +638,113 @@ async function deleteAllUsers() {
   await pool.query("TRUNCATE TABLE users RESTART IDENTITY CASCADE");
 }
 
-async function createRagSolveJob({ userId, questionText, options, wrongChoice, answerChoice, requestPayload }) {
+function buildAiExplanationFromRagPayload(payload) {
+  if (payload == null) return null;
+  let p = payload;
+  if (typeof p === "string") {
+    try {
+      p = JSON.parse(p);
+    } catch {
+      return null;
+    }
+  }
+  if (!p || typeof p !== "object") return null;
+
+  const first = Array.isArray(p.results) && p.results.length ? p.results[0] : {};
+  const report = first.report || p.report || {};
+  const body = report.body || {};
+  const overview = String(body.overview || "").trim();
+  const analysisRaw = body.analysis;
+  let analysisText = "";
+  if (analysisRaw && typeof analysisRaw === "object" && !Array.isArray(analysisRaw)) {
+    analysisText = Object.keys(analysisRaw)
+      .sort((a, b) => (Number(a) || 0) - (Number(b) || 0) || String(a).localeCompare(String(b)))
+      .map(key => {
+        const v = analysisRaw[key];
+        let t = "";
+        if (typeof v === "string") t = v.trim();
+        else if (v != null && typeof v === "object" && "text" in v) t = String(v.text || "").trim();
+        else if (v != null && typeof v === "object") t = JSON.stringify(v);
+        else t = String(v || "").trim();
+        return t ? `${key}번 보기: ${t}` : "";
+      })
+      .filter(Boolean)
+      .join("\n\n");
+  } else if (typeof analysisRaw === "string" && analysisRaw.trim()) {
+    analysisText = analysisRaw.trim();
+  }
+  const correction = String(body.correction || "").trim();
+  const insight = String(body.insight || "").trim();
+  const magic = String(report.magic_tip || body.magic_tip || "").trim();
+  const legacyAnalysisText =
+    analysisRaw && typeof analysisRaw === "object" && !Array.isArray(analysisRaw) && "text" in analysisRaw
+      ? String(analysisRaw.text || "").trim()
+      : "";
+  const bodyText = String(body.text || "").trim();
+  const reportText = String(report.text || "").trim();
+
+  const parts = [];
+  if (overview) parts.push(overview);
+  if (analysisText) parts.push(analysisText);
+  if (correction) parts.push(correction);
+  if (insight) parts.push(insight);
+  if (magic) parts.push(magic);
+  if (parts.length) return parts.join("\n\n");
+
+  if (legacyAnalysisText) return legacyAnalysisText;
+  if (bodyText) return bodyText;
+  if (reportText) return reportText;
+  return null;
+}
+
+async function createRagSolveJob({
+  userId,
+  questionText,
+  options,
+  wrongChoice,
+  answerChoice,
+  requestPayload,
+  quizAttemptId: rawQaId,
+  quizAttemptAnswerIndex: rawIdx
+} = {}) {
   const safeOptions = Array.isArray(options) ? options.slice(0, 4).map(x => String(x || "").trim()) : [];
   if (safeOptions.length !== 4 || safeOptions.some(x => !x)) {
     throw new Error("invalid_options");
   }
 
+  let quizAttemptId = null;
+  if (rawQaId != null && String(rawQaId).trim() !== "") {
+    const n = Number(rawQaId);
+    if (Number.isInteger(n) && n > 0) {
+      quizAttemptId = n;
+    }
+  }
+  let quizAttemptAnswerIndex = null;
+  if (rawIdx !== undefined && rawIdx !== null && String(rawIdx).trim() !== "") {
+    const n = Number(rawIdx);
+    if (Number.isInteger(n) && n >= 0) {
+      quizAttemptAnswerIndex = n;
+    }
+  }
+
+  // 문제은행에서 해설 생성시(quizAttemptId/quizAttemptAnswerIndex가 null) 항상 새로 생성 (중복/재사용 금지)
+  // 퀴즈 세션에서만 중복 방지(이미 있으면 재사용) 가능하게 하려면 아래 주석 해제
+  // if (quizAttemptId && quizAttemptAnswerIndex !== null) {
+  //   const check = await pool.query(
+  //     `SELECT id FROM rag_solve_jobs WHERE quiz_attempt_id = $1 AND quiz_attempt_answer_index = $2 LIMIT 1`,
+  //     [quizAttemptId, quizAttemptAnswerIndex]
+  //   );
+  //   if (check.rows.length > 0) {
+  //     return await getRagSolveJobById(check.rows[0].id);
+  //   }
+  // }
+
   const result = await pool.query(
     `INSERT INTO rag_solve_jobs (
        user_id, question_text, option_1, option_2, option_3, option_4,
-       wrong_choice, answer_choice, request_payload
+       wrong_choice, answer_choice, request_payload, quiz_attempt_id, quiz_attempt_answer_index
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
      RETURNING id, status, created_at AS "createdAt"`,
     [
       userId,
@@ -627,7 +755,9 @@ async function createRagSolveJob({ userId, questionText, options, wrongChoice, a
       safeOptions[3],
       wrongChoice ? String(wrongChoice).trim() : null,
       answerChoice ? String(answerChoice).trim() : null,
-      JSON.stringify(requestPayload || {})
+      JSON.stringify(requestPayload || {}),
+      quizAttemptId,
+      quizAttemptAnswerIndex
     ]
   );
 
@@ -687,8 +817,9 @@ async function failRagSolveJob(jobId, errorMessage) {
   return result.rows[0] || null;
 }
 
-async function getRagSolveHistoryByUser(userId, limit = 100) {
-  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 300);
+async function getRagSolveHistoryByUser(userId, limit = 100, offset = 0) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 500);
+  const safeOffset = Math.min(Math.max(Number(offset) || 0, 0), 100_000);
   const result = await pool.query(
     `SELECT id, status, question_text AS "questionText",
             option_1 AS "option1", option_2 AS "option2", option_3 AS "option3", option_4 AS "option4",
@@ -699,8 +830,8 @@ async function getRagSolveHistoryByUser(userId, limit = 100) {
      FROM rag_solve_jobs
      WHERE user_id = $1
      ORDER BY created_at DESC
-     LIMIT $2`,
-    [userId, safeLimit]
+     LIMIT $2 OFFSET $3`,
+    [userId, safeLimit, safeOffset]
   );
 
   return result.rows;
@@ -713,7 +844,9 @@ async function getRagSolveJobDetail(userId, jobId) {
             wrong_choice AS "wrongChoice", answer_choice AS "answerChoice",
             request_payload AS "requestPayload", result_payload AS "resultPayload",
             error_message AS "errorMessage", created_at AS "createdAt",
-            started_at AS "startedAt", completed_at AS "completedAt"
+            started_at AS "startedAt", completed_at AS "completedAt",
+            quiz_attempt_id AS "quizAttemptId",
+            quiz_attempt_answer_index AS "quizAttemptAnswerIndex"
      FROM rag_solve_jobs
      WHERE user_id = $1 AND id = $2
      LIMIT 1`,
@@ -765,8 +898,9 @@ async function saveQuizAttempt({ userId, quizUid, totalQuestions, correctCount, 
   }
 }
 
-async function getQuizHistoryByUser(userId, limit = 100) {
+async function getQuizHistoryByUser(userId, limit = 100, offset = 0) {
   const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 500);
+  const safeOffset = Math.min(Math.max(Number(offset) || 0, 0), 100_000);
 
   const result = await pool.query(
     `SELECT id, quiz_uid AS "quizUid", total_questions AS "totalQuestions", correct_count AS "correctCount",
@@ -774,8 +908,8 @@ async function getQuizHistoryByUser(userId, limit = 100) {
      FROM quiz_attempts
      WHERE user_id = $1
      ORDER BY created_at DESC
-     LIMIT $2`,
-    [userId, safeLimit]
+     LIMIT $2 OFFSET $3`,
+    [userId, safeLimit, safeOffset]
   );
 
   return result.rows;
@@ -795,19 +929,186 @@ async function getQuizAttemptDetail(userId, attemptId) {
     return null;
   }
 
+  // 답안은 INSERT 순서(= 풀이 시 문항 순서)와 동일한 0-based answer_idx로 RAG와 조인한다.
   const answersResult = await pool.query(
-    `SELECT question_id AS "questionId", subject, question_text AS "questionText",
-            selected_index AS "selectedIndex", correct_index AS "correctIndex", is_correct AS "isCorrect"
-     FROM quiz_attempt_answers
-     WHERE attempt_id = $1
-     ORDER BY id ASC`,
+    `WITH answer_rows AS (
+       SELECT
+         qa.question_id AS q_question_id,
+         qa.subject,
+         qa.question_text AS q_question_text,
+         qa.selected_index AS q_selected_index,
+         qa.correct_index AS q_correct_index,
+         qa.is_correct AS q_is_correct,
+         qa.id AS qa_sort_id,
+         (ROW_NUMBER() OVER (ORDER BY qa.id ASC) - 1)::int AS answer_idx
+       FROM quiz_attempt_answers qa
+       WHERE qa.attempt_id = $1
+     )
+     SELECT
+       ar.q_question_id AS "questionId",
+       ar.subject,
+       ar.q_question_text AS "questionText",
+       ar.q_selected_index AS "selectedIndex",
+       ar.q_correct_index AS "correctIndex",
+       ar.q_is_correct AS "isCorrect",
+       q.option1, q.option2, q.option3, q.option4, q.explanation,
+       lr.rag_payload AS "ragPayload"
+     FROM answer_rows ar
+     LEFT JOIN questions q ON q.id = ar.q_question_id
+     LEFT JOIN LATERAL (
+       SELECT r.result_payload AS rag_payload
+       FROM rag_solve_jobs r
+       WHERE r.quiz_attempt_id = $1
+         AND r.quiz_attempt_answer_index IS NOT NULL
+         AND r.quiz_attempt_answer_index = ar.answer_idx
+         AND r.status = 'completed'
+       ORDER BY r.id DESC
+       LIMIT 1
+     ) lr ON true
+     ORDER BY ar.qa_sort_id ASC`,
     [attemptId]
   );
 
+  const answers = answersResult.rows.map(row => {
+    let aiExplain = null;
+    let aiRagPayload = null;
+    if (row.ragPayload) {
+      try {
+        const payload = typeof row.ragPayload === "string" ? JSON.parse(row.ragPayload) : row.ragPayload;
+        aiRagPayload = payload;
+        aiExplain =
+          buildAiExplanationFromRagPayload(payload) ||
+          payload?.results?.[0]?.report?.body?.analysis?.text ||
+          payload?.results?.[0]?.report?.body?.text ||
+          payload?.results?.[0]?.report?.text ||
+          payload?.report?.body?.analysis?.text ||
+          payload?.report?.body?.text ||
+          payload?.report?.text ||
+          payload?.text ||
+          null;
+      } catch (e) {
+        aiExplain = null;
+        aiRagPayload = null;
+      }
+    }
+    return {
+      questionId: row.questionId,
+      subject: row.subject,
+      questionText: row.questionText,
+      selectedIndex: row.selectedIndex,
+      correctIndex: row.correctIndex,
+      isCorrect: row.isCorrect,
+      options: (row.option1 && row.option2 && row.option3 && row.option4)
+        ? [row.option1, row.option2, row.option3, row.option4]
+        : null,
+      explanation: row.explanation || null,
+      aiExplanation: aiExplain,
+      aiRagPayload
+    };
+  });
+
   return {
     ...attempt,
-    answers: answersResult.rows
+    answers
   };
+}
+
+// 민감한 정보 마스킹 함수
+function sanitizePayload(payload) {
+  if (!payload || typeof payload !== 'object') return payload;
+  
+  const sanitized = JSON.parse(JSON.stringify(payload)); // Deep copy
+  const sensitiveKeys = ['password', 'password_hash', 'token', 'api_key', 'secret', 'authorization'];
+  
+  const maskSensitive = (obj) => {
+    if (obj === null || obj === undefined) return;
+    if (typeof obj !== 'object') return;
+    
+    for (const key of Object.keys(obj)) {
+      if (sensitiveKeys.some(k => key.toLowerCase().includes(k))) {
+        obj[key] = '***REDACTED***';
+      } else if (typeof obj[key] === 'object') {
+        maskSensitive(obj[key]);
+      }
+    }
+  };
+  
+  maskSensitive(sanitized);
+  return sanitized;
+}
+
+// API 요청/응답 로그 저장
+async function logApiRequest({ endpoint, method, userId = null, requestPayload = null, responsePayload = null, statusCode = null, errorMessage = null, responseTimeMs = null }) {
+  try {
+    const sanitizedRequest = sanitizePayload(requestPayload);
+    const sanitizedResponse = sanitizePayload(responsePayload);
+    
+    await pool.query(
+      `INSERT INTO api_request_logs 
+       (endpoint, method, user_id, request_payload, response_payload, status_code, error_message, response_time_ms)
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)`,
+      [
+        endpoint,
+        method,
+        userId || null,
+        sanitizedRequest ? JSON.stringify(sanitizedRequest) : null,
+        sanitizedResponse ? JSON.stringify(sanitizedResponse) : null,
+        statusCode,
+        errorMessage || null,
+        responseTimeMs || null
+      ]
+    );
+  } catch (err) {
+    console.error('[API Log Error]', err.message);
+    // 로깅 실패가 API 응답을 방해하지 않도록 에러를 무시
+  }
+}
+
+// API 요청 로그 조회 (논문 데이터 분석용)
+async function getApiRequestLogs({ endpoint = null, limit = 100, offset = 0 } = {}) {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 5000);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+  
+  let query = `
+    SELECT id, endpoint, method, user_id AS "userId", 
+           request_payload AS "requestPayload", 
+           response_payload AS "responsePayload",
+           status_code AS "statusCode", error_message AS "errorMessage",
+           response_time_ms AS "responseTimeMs", created_at AS "createdAt"
+    FROM api_request_logs
+  `;
+  const params = [];
+  
+  if (endpoint) {
+    query += ` WHERE endpoint = $${params.length + 1}`;
+    params.push(endpoint);
+  }
+  
+  query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  params.push(safeLimit, safeOffset);
+  
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+// API 로그 통계 (논문 분석용)
+async function getApiLogStatistics() {
+  const result = await pool.query(`
+    SELECT 
+      endpoint,
+      method,
+      COUNT(*) as total_calls,
+      AVG(response_time_ms) as avg_response_time_ms,
+      MIN(response_time_ms) as min_response_time_ms,
+      MAX(response_time_ms) as max_response_time_ms,
+      SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_count,
+      SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count
+    FROM api_request_logs
+    GROUP BY endpoint, method
+    ORDER BY total_calls DESC
+  `);
+  
+  return result.rows;
 }
 
 module.exports = {
@@ -840,5 +1141,8 @@ module.exports = {
   completeRagSolveJob,
   failRagSolveJob,
   getRagSolveHistoryByUser,
-  getRagSolveJobDetail
+  getRagSolveJobDetail,
+  logApiRequest,
+  getApiRequestLogs,
+  getApiLogStatistics
 };

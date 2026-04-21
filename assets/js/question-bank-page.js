@@ -9,8 +9,17 @@ const ST = {
   pageSize: 20,
   total: 0,
   totalPages: 1,
-  loading: false
+  loadSeq: 0
 };
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 function parseQuery() {
   const params = new URLSearchParams(location.search);
@@ -23,6 +32,15 @@ function parseQuery() {
   ST.page = page;
 }
 
+function replaceBankLocationSearch(nextParams) {
+  const url = new URL(location.href);
+  url.search = "";
+  nextParams.forEach((value, key) => {
+    url.searchParams.set(key, value);
+  });
+  window.history.replaceState(null, "", url.pathname + url.search);
+}
+
 function syncQuery() {
   const params = new URLSearchParams();
   if (ST.certificate) {
@@ -32,30 +50,172 @@ function syncQuery() {
     params.set("subject", ST.subject);
   }
   params.set("page", String(ST.page));
-  history.replaceState(null, "", `/pages/question-bank.html?${params.toString()}`);
+  replaceBankLocationSearch(params);
+}
+
+function showCardMessage(article, type, text) {
+  const msg = article.querySelector("[data-role='explain-msg']");
+  if (!msg) {
+    return;
+  }
+  msg.className = type ? `msg ${type}` : "msg";
+  msg.textContent = text;
+}
+
+async function requestExplainFromBankQuestion(questionId, article, buttonEl) {
+  if (buttonEl) {
+    buttonEl.disabled = true;
+  }
+  showCardMessage(article, "", "AI 해설 작업을 생성하는 중...");
+
+  try {
+    const detailRes = await fetch(`/api/quiz/questions?questionId=${encodeURIComponent(String(questionId))}`, {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
+
+    const detailJson = await detailRes.json();
+    if (!detailRes.ok) {
+      showCardMessage(article, "err", detailJson.message || "문제 정보를 가져오지 못했습니다.");
+      return;
+    }
+
+    const q = Array.isArray(detailJson.questions) ? detailJson.questions[0] : null;
+    const options = Array.isArray(q?.options) ? q.options.map(opt => String(opt || "").trim()) : [];
+    const answerText = Number.isInteger(q?.answer) && q.answer >= 0 && q.answer < options.length
+      ? options[q.answer]
+      : "";
+
+    if (!q || !String(q.question || "").trim() || options.length !== 4 || options.some(x => !x)) {
+      showCardMessage(article, "err", "해설 요청에 필요한 문제 데이터가 올바르지 않습니다.");
+      return;
+    }
+
+    const ragRes = await fetch("/api/rag2/jobs", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        question: String(q.question || "").trim(),
+        options,
+        wrongChoice: "",
+        answerChoice: answerText,
+        rebuild_db: false
+      })
+    });
+
+    let ragJson = {};
+    try {
+      ragJson = await ragRes.json();
+    } catch {
+      ragJson = {};
+    }
+    if (!ragRes.ok) {
+      showCardMessage(article, "err", ragJson.message || ragJson.detail || "AI 해설 요청 생성에 실패했습니다.");
+      return;
+    }
+
+    const jobId = ragJson.jobId != null ? ragJson.jobId : ragJson.id;
+    location.href = `/pages/ai-loading.html?jobId=${encodeURIComponent(String(jobId))}`;
+  } catch (e) {
+    showCardMessage(article, "err", "네트워크 오류로 해설 요청을 생성하지 못했습니다.");
+  } finally {
+    if (buttonEl) {
+      buttonEl.disabled = false;
+    }
+  }
 }
 
 function makeCard(question) {
   const article = document.createElement("article");
   article.className = "card bank-item";
+  article.dataset.questionId = String(question.id);
 
   const preview = String(question.question || "").slice(0, 120);
   const shortPreview = String(question.question || "").length > 120 ? `${preview}...` : preview;
   const certLabel = String(question.certificate || "기타").trim();
   const subLabel = String(question.subSubject || question.subject || "세부 과목 없음").trim();
 
-  article.innerHTML = `
-    <div class='bank-item-head'>
-      <strong>문제 ID ${question.id}</strong>
-      <span class='dash-chip'>${certLabel} · ${subLabel}</span>
-    </div>
-    <div class='bank-q'>${shortPreview || "문항 내용 없음"}</div>
-    <div class='bank-item-actions'>
-      <a class='btn btn-navy btn-sm' href='/pages/quiz.html?questionId=${encodeURIComponent(String(question.id))}'>이 문제 풀기</a>
-    </div>
-  `;
+  const head = document.createElement("div");
+  head.className = "bank-item-head";
+
+  const strong = document.createElement("strong");
+  strong.textContent = `문제 ID ${question.id}`;
+
+  const chip = document.createElement("span");
+  chip.className = "dash-chip";
+  chip.textContent = `${certLabel} \xb7 ${subLabel}`;
+
+  head.appendChild(strong);
+  head.appendChild(chip);
+
+  const qdiv = document.createElement("div");
+  qdiv.className = "bank-q";
+  qdiv.textContent = shortPreview || "문항 내용 없음";
+
+  const actions = document.createElement("div");
+  actions.className = "bank-item-actions";
+
+  const solveA = document.createElement("a");
+  solveA.className = "btn btn-navy btn-sm";
+  solveA.href = `/pages/quiz.html?questionId=${encodeURIComponent(String(question.id))}`;
+  solveA.textContent = "이 문제 풀기";
+
+  const explainBtn = document.createElement("button");
+  explainBtn.type = "button";
+  explainBtn.className = "btn btn-navy btn-sm bank-explain-btn";
+  explainBtn.dataset.action = "explain";
+  explainBtn.textContent = "AI 해설보기";
+  explainBtn.addEventListener("click", () => {
+    requestExplainFromBankQuestion(question.id, article, explainBtn);
+  });
+
+  actions.appendChild(solveA);
+  actions.appendChild(explainBtn);
+
+  const msg = document.createElement("div");
+  msg.className = "msg";
+  msg.dataset.role = "explain-msg";
+
+  article.appendChild(head);
+  article.appendChild(qdiv);
+  article.appendChild(actions);
+  article.appendChild(msg);
 
   return article;
+}
+
+function repairBankExplainButtons() {
+  const list = $("bank-list");
+  if (!list) {
+    return;
+  }
+
+  list.querySelectorAll(".bank-item").forEach(article => {
+    if (article.querySelector("[data-action='explain']")) {
+      return;
+    }
+
+    const qid = Number(article.dataset.questionId);
+    if (!Number.isInteger(qid) || qid <= 0) {
+      return;
+    }
+
+    const actions = article.querySelector(".bank-item-actions");
+    if (!actions) {
+      return;
+    }
+
+    const explainBtn = document.createElement("button");
+    explainBtn.type = "button";
+    explainBtn.className = "btn btn-navy btn-sm bank-explain-btn";
+    explainBtn.dataset.action = "explain";
+    explainBtn.textContent = "AI 해설보기";
+    explainBtn.addEventListener("click", () => {
+      requestExplainFromBankQuestion(qid, article, explainBtn);
+    });
+    actions.appendChild(explainBtn);
+  });
 }
 
 function setMetaText() {
@@ -67,6 +227,24 @@ function setMetaText() {
     : " · 자격증을 선택하세요";
   $("bank-meta").textContent = `${certificateText}${subjectText} · ${from}-${to} / 총 ${ST.total}문제`;
   $("page-indicator").textContent = `${ST.page} / ${ST.totalPages}`;
+
+  const statTotal = $("stat-total");
+  if (statTotal) {
+    statTotal.textContent = String(ST.total.toLocaleString("ko-KR"));
+  }
+
+  const statPage = $("stat-page");
+  if (statPage) {
+    statPage.textContent = `${ST.page} / ${ST.totalPages}`;
+  }
+
+  const statScope = $("stat-scope");
+  if (statScope) {
+    const scopeText = ST.certificate
+      ? (ST.subject ? `${ST.certificate} · ${ST.subject}` : ST.certificate)
+      : "전체";
+    statScope.textContent = scopeText;
+  }
 }
 
 function fillSubjectOptions() {
@@ -174,11 +352,7 @@ async function loadSubjects() {
 }
 
 async function loadQuestions() {
-  if (ST.loading) {
-    return;
-  }
-
-  ST.loading = true;
+  const seq = ++ST.loadSeq;
   const list = $("bank-list");
   const pagination = $("bank-pagination");
   list.innerHTML = "<section class='card panel'>문제를 불러오는 중...</section>";
@@ -209,6 +383,10 @@ async function loadQuestions() {
     ST.pageSize = Number(d.pageSize) || 20;
     ST.totalPages = Math.max(1, Number(d.totalPages) || 1);
 
+    if (seq !== ST.loadSeq) {
+      return;
+    }
+
     if (!questions.length) {
       list.innerHTML = "<section class='card panel'>조건에 맞는 문제가 없습니다.</section>";
       pagination.style.display = "none";
@@ -219,6 +397,8 @@ async function loadQuestions() {
 
     list.innerHTML = "";
     questions.forEach(q => list.appendChild(makeCard(q)));
+    repairBankExplainButtons();
+    requestAnimationFrame(() => repairBankExplainButtons());
 
     pagination.style.display = "flex";
     $("btn-prev").disabled = ST.page <= 1;
@@ -227,10 +407,11 @@ async function loadQuestions() {
     setMetaText();
     syncQuery();
   } catch (e) {
+    if (seq !== ST.loadSeq) {
+      return;
+    }
     list.innerHTML = "<section class='card panel'>문제를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.</section>";
     pagination.style.display = "none";
-  } finally {
-    ST.loading = false;
   }
 }
 
@@ -281,6 +462,22 @@ async function init() {
 
   await loadSubjects();
   await loadQuestions();
+  setTimeout(() => repairBankExplainButtons(), 100);
 }
+
+window.addEventListener("pageshow", () => {
+  requestAnimationFrame(() => {
+    repairBankExplainButtons();
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    const list = $("bank-list");
+    const hasCards = list && list.querySelector(".bank-item");
+    const hasExplain = list && list.querySelector(".bank-explain-btn");
+    if (hasCards && !hasExplain) {
+      loadQuestions();
+    }
+  });
+});
 
 init();

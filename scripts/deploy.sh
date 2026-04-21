@@ -45,6 +45,7 @@ echo "[verify] Verifying health endpoint"
 for i in {1..20}; do
   if curl -fsS http://127.0.0.1:8080/healthz >/dev/null && curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then
     echo "Deployment successful: http://127.0.0.1:8080"
+    echo "[hint] 원격(sikdorak.org 등)은 이 스크립트만으로 반영되지 않습니다. DEPLOY_HOST·DEPLOY_PATH 설정 후: npm run sync:web"
     exit 0
   fi
   sleep 1

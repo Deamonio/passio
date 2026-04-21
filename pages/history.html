@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
-<link rel="stylesheet" href="/assets/css/passai.css?v=20260416c">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
 </head>
 <body>
 <div class="page">
@@ -22,7 +22,7 @@
       <nav class="nav-menu" aria-label="페이지 이동">
         <a class="nav-link" href="/pages/dashboard.html">대시보드</a>
         <a class="nav-link" href="/pages/ai-explain.html">AI 해설</a>
-        <a class="nav-link" href="/pages/question-bank.html">문제은행</a>
+        <a class="nav-link" href="/pages/question-bank.html?v=20260417b">문제은행</a>
         <a class="nav-link active" href="/pages/history.html">히스토리</a>
         <a class="nav-link" href="/pages/api-token.html">API 토큰</a>
       </nav>
@@ -33,36 +33,43 @@
     </div>
   </header>
 
-  <main class="container section history-layout">
-    <section class="dash-headline">
+  <main class="container section history-layout" style="max-width:1100px;">
+    <section class="dash-headline" style="margin-bottom:18px;">
       <span class="dash-pill">Study History</span>
-      <h2><span id="user-name">학습자</span>님의 학습 기록</h2>
-      <p class="sub">퀴즈 풀이 기록과 AI 해설 생성 기록을 한 곳에서 다시 확인할 수 있습니다.</p>
+      <h2 style="font-size:2.1rem;margin:0 0 8px 0;"><span id="user-name">학습자</span>님의 학습 기록</h2>
+      <p class="sub" style="font-size:1.08rem;">퀴즈 풀이와 AI 해설 생성 내역을 한눈에 확인하세요.</p>
     </section>
 
-    <section class="history-group">
-      <div class="history-group-head">
-        <h3>퀴즈 풀이 기록</h3>
-        <a class="btn btn-out btn-sm" href="/pages/dashboard.html">퀴즈 시작</a>
-      </div>
-      <section id="quiz-history-list" class="history-list"></section>
-      <section id="quiz-history-empty" class="card panel" style="display:none;text-align:center;">
-        아직 저장된 퀴즈 기록이 없습니다. 첫 퀴즈를 시작해보세요.
-      </section>
-    </section>
+    <div class="history-toolbar" style="display:flex;gap:10px;margin-bottom:18px;">
+      <a class="btn btn-out btn-sm" href="/pages/dashboard.html">퀴즈 시작</a>
+      <a class="btn btn-navy btn-sm" href="/pages/ai-explain.html">새 AI 해설</a>
+    </div>
 
-    <section class="history-group">
-      <div class="history-group-head">
-        <h3>AI 해설 기록</h3>
-        <a class="btn btn-navy btn-sm" href="/pages/ai-explain.html">새 AI 해설 만들기</a>
-      </div>
-      <section id="rag-history-list" class="history-list"></section>
-      <section id="rag-history-empty" class="card panel" style="display:none;text-align:center;">
-        아직 저장된 AI 해설 기록이 없습니다. 새 문제를 입력해 분석을 시작해보세요.
+    <div class="history-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start;">
+      <section class="history-group-col" style="background:var(--surface);border-radius:16px;padding:22px 18px 18px 18px;box-shadow:0 2px 12px rgba(37,51,80,0.07);border:1.2px solid var(--navy-b);">
+        <div class="history-group-head" style="margin-bottom:10px;">
+          <h3 style="font-size:1.15rem;margin:0 0 2px 0;">퀴즈 풀이 기록</h3>
+        </div>
+        <section id="quiz-history-list" class="history-list"></section>
+        <div id="quiz-history-more-wrap" style="margin-top:12px;">
+          <button type="button" class="btn btn-out btn-sm" id="btn-quiz-history-more" style="display:none;">이전 퀴즈 기록 더 보기</button>
+        </div>
+        <section id="quiz-history-empty" class="card panel" style="display:none;text-align:center;background:var(--s1);border-radius:10px;">아직 저장된 퀴즈 기록이 없습니다.</section>
       </section>
-    </section>
+      <section class="history-group-col" style="background:var(--surface);border-radius:16px;padding:22px 18px 18px 18px;box-shadow:0 2px 12px rgba(37,51,80,0.07);border:1.2px solid var(--navy-b);">
+        <div class="history-group-head" style="margin-bottom:10px;">
+          <h3 style="font-size:1.15rem;margin:0 0 2px 0;">AI 해설 기록</h3>
+        </div>
+        <section id="rag-history-list" class="history-list"></section>
+        <div id="rag-history-more-wrap" style="margin-top:12px;">
+          <button type="button" class="btn btn-out btn-sm" id="btn-rag-history-more" style="display:none;">이전 AI 해설 더 보기</button>
+        </div>
+        <section id="rag-history-empty" class="card panel" style="display:none;text-align:center;background:var(--s1);border-radius:10px;">아직 저장된 AI 해설 기록이 없습니다.</section>
+      </section>
+    </div>
   </main>
 </div>
-<script src="/assets/js/history-page.js?v=20260416i"></script>
+<script src="/assets/js/quiz-ai-blocks.js?v=20260419unifiedAi"></script>
+<script src="/assets/js/history-page.js?v=20260419ragOrder"></script>
 </body>
 </html>

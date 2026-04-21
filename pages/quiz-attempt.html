@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ko" data-passio-build="quiz-attempt-v1">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+<title>Passio — 퀴즈 세션 상세</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/lora@5/600.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
+</head>
+<body>
+<div class="page">
+  <header class="nav">
+    <div class="nav-left">
+      <a class="nav-logo" href="/pages/index.html" aria-label="홈으로 이동">
+        <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 15 15"><path d="M7.5 1.5l2 4 4.4.6-3.2 3.1.8 4.4-4-2.1-4 2.1.8-4.4-3.2-3.1 4.4-.6z"/></svg></span>
+        <span class="nav-brand-name">Passio</span>
+      </a>
+      <nav class="nav-menu" aria-label="페이지 이동">
+        <a class="nav-link" href="/pages/dashboard.html">대시보드</a>
+        <a class="nav-link" href="/pages/ai-explain.html">AI 해설</a>
+        <a class="nav-link" href="/pages/question-bank.html">문제은행</a>
+        <a class="nav-link" href="/pages/history.html">히스토리</a>
+        <a class="nav-link" href="/pages/api-token.html">API 토큰</a>
+      </nav>
+    </div>
+    <div class="nav-r">
+      <span class="nav-user" id="ava-quiz-detail">학습자</span>
+      <button class="btn btn-out btn-sm" id="btn-logout">로그아웃</button>
+    </div>
+  </header>
+  <main class="container section quiz-detail-layout">
+    <p id="quiz-detail-static-banner" class="muted" style="font-size:12px;line-height:1.5;margin:0 0 10px;display:none;"></p>
+    <div id="quiz-detail-main"></div>
+  </main>
+</div>
+<script src="/assets/js/quiz-ai-blocks.js?v=20260419unifiedAi"></script>
+<script src="/assets/js/quiz-detail-app.js?v=app20260420pdfWrongOnly"></script>
+<script>
+(function () {
+  var EXPECT = "app-20260420pdfWrongOnly";
+  function check() {
+    var banner = document.getElementById("quiz-detail-static-banner");
+    if (window.__PASSIO_QUIZ_DETAIL_APP__ === EXPECT) {
+      return;
+    }
+    if (!banner) {
+      return;
+    }
+    banner.style.display = "block";
+    banner.className = "card panel muted";
+    banner.style.borderLeft = "3px solid var(--red)";
+    banner.innerHTML =
+      "<strong>JS가 예전이거나 로드되지 않았습니다.</strong> " +
+      "<code>/assets/js/quiz-detail-app.js?v=app20260420pdfWrongOnly</code> 가 200인지 확인하세요.";
+  }
+  window.addEventListener("load", function () {
+    setTimeout(check, 4000);
+  });
+})();
+</script>
+</body>
+</html>

@@ -9,9 +9,40 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
-<link rel="stylesheet" href="/assets/css/passai.css?v=20260416i">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
 </head>
 <body>
+<script>
+(function () {
+  if (window.__PASSIO_RAG_JOBS_SHIM__) return;
+  window.__PASSIO_RAG_JOBS_SHIM__ = true;
+  var orig = window.fetch.bind(window);
+  window.fetch = function (input, init) {
+    var m = String((init && init.method) || (typeof input !== "string" && input && input.method) || "GET").toUpperCase();
+    if (m !== "POST") return orig(input, init);
+    try {
+      var path = new URL(typeof input === "string" ? input : input.url, location.href).pathname.replace(/\/$/, "") || "/";
+      if (path !== "/api/rag/jobs") return orig(input, init);
+      if (typeof input === "string") return orig("/api/rag2/jobs", init);
+      if (input instanceof Request) {
+        return orig(
+          new Request("/api/rag2/jobs", {
+            method: "POST",
+            headers: input.headers,
+            body: input.body,
+            credentials: input.credentials,
+            cache: input.cache,
+            redirect: input.redirect,
+            referrer: input.referrer,
+            integrity: input.integrity
+          })
+        );
+      }
+    } catch (e) {}
+    return orig(input, init);
+  };
+})();
+</script>
 <div class="page">
   <header class="nav">
     <div class="nav-left">
@@ -78,6 +109,6 @@
     </section>
   </main>
 </div>
-<script src="/assets/js/ai-explain-page.js?v=20260416i"></script>
+<script src="/assets/js/ai-explain-page.js?v=20260419fix"></script>
 </body>
 </html>

@@ -22,10 +22,10 @@ services:
       - PY_API_PORT=8000
       - SERVICE_NAME=sikdorak-python-api
       - OLLAMA_HOST=${OLLAMA_HOST:-http://100.79.44.109:11434}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma:latest}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4-e4b:latest}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-bge-m3:latest}
       - CHROMA_DB_DIR=/data/chroma_db
-      - PDF_PATH=/data/네트워크관리사-압축됨.pdf
+      - PDF_PATH=/data/네트워크관리사.pdf
       - MD_PATH=/data/theory_only.md
     volumes:
       - ./:/app

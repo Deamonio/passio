@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/400.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/500.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/outfit@5/600.css">
-<link rel="stylesheet" href="/assets/css/passai.css?v=20260416c">
+<link rel="stylesheet" href="/assets/css/passai.css?v=20260419responsive">
 </head>
 <body>
 <div class="page">
@@ -44,9 +44,13 @@
           <div class="question-text" id="q-text"></div>
           <div class="options" id="q-options"></div>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:10px;flex-wrap:wrap;">
-            <div class="muted" style="font-size:12px;">단축키: <span class="kbd">1</span>~<span class="kbd">4</span>, <span class="kbd">Enter</span></div>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <div class="muted" style="font-size:12px;">단축키: <span class="kbd">1</span>~<span class="kbd">4</span>, <span class="kbd">Enter</span></div>
+              <button class="btn btn-navy btn-sm" id="btn-explain-current" type="button" style="display:none;">이 문제 AI 해설보기</button>
+            </div>
             <button class="btn primary" id="btn-next" disabled>다음 문제</button>
           </div>
+          <div id="explain-msg-current" class="msg" style="margin-top:10px;"></div>
         </section>
       </div>
     </main>
@@ -70,24 +74,53 @@
       </div>
     </header>
     <main class="quiz-layout">
-      <section class="card panel" style="text-align:center;margin-bottom:12px;">
-        <div class="score" id="score">0점</div>
+      <section class="card panel result-summary-card">
+        <div class="score" id="score">결과</div>
         <div id="score-msg" class="muted">수고하셨습니다.</div>
+        <p id="result-ux-hint" class="muted" style="font-size:13px;margin-top:10px;line-height:1.6;display:none;">
+          <strong>1단계</strong> — 점수·정오는 이미 반영됐어요. <strong>2·3단계</strong> — 해설은 아래에서 필요할 때만 받으면 됩니다.
+        </p>
         <div id="save-msg" class="muted" style="font-size:12px;margin-top:6px;">기록 저장 중...</div>
+        <div id="explain-msg" class="msg" style="margin-top:6px;"></div>
         <div class="tags">
           <span class="tag ok" id="score-ok">정답 0개</span>
           <span class="tag ng" id="score-ng">오답 0개</span>
         </div>
       </section>
-      <h3 style="margin:12px 0 8px;">문제별 결과</h3>
+      <div class="result-section-head">
+        <h3>문제별 결과</h3>
+        <p class="muted">채점은 끝났고, 해설은 <strong>온디맨드</strong>로 받을 수 있어요. 각 카드의 버튼은 그 문항만, 묶음 버튼은 틀린 문항 전체를 서버에 순서대로 맡깁니다.</p>
+      </div>
+      <div class="card panel result-explain-toolbar" style="margin-top:12px;padding:14px 16px;border-left:3px solid var(--navy);">
+        <p class="muted" style="margin:0 0 12px;font-size:13px;line-height:1.65;">
+          <strong style="color:var(--navy);">2단계 · 온디맨드:</strong> 각 카드 아래 <strong>AI 1타 강사 해설 보기</strong> — 누른 문항만 생성되고, 로딩 문구와 함께 약 30초 안팎 기다리면 됩니다.<br>
+          <strong style="color:var(--navy);">3단계 · 묶음(백그라운드):</strong> 오답이 있으면 <strong>틀린 문제 전체 해설 신청</strong>으로 요청을 한 번에 접수합니다. 접수만 끝나면 이 화면을 나가도 되고, 서버가 순서대로 생성합니다. <strong>히스토리 → AI 해설</strong>에서 확인하거나 나중에 새로고침하세요.
+        </p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <button class="btn btn-out btn-sm" id="btn-batch-wrong-explain" type="button" style="display:none;">틀린 문제 전체 해설 신청</button>
+        </div>
+      </div>
+      <div id="batch-explain-banner" class="card panel batch-explain-banner" style="display:none;margin-top:12px;" role="status" aria-live="polite">
+        <div class="batch-explain-banner-inner">
+          <p id="batch-explain-text" class="muted" style="margin:0;font-size:13px;line-height:1.5;"></p>
+        </div>
+      </div>
       <div id="result-list"></div>
-      <div class="row" style="margin-top:12px;">
-        <button class="btn ghost" id="btn-retry">다시 풀기</button>
-        <button class="btn primary" id="btn-home">홈으로</button>
+      <div class="result-footer result-footer--quiz-result" style="margin-top:12px;">
+        <div class="result-footer-primary" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <span class="muted" style="font-size:12px;">문항별 버튼은 아래 각 카드 안쪽에 있습니다.</span>
+        </div>
+        <div class="result-footer-secondary">
+          <span id="result-single-explain-wrap" class="result-single-explain-wrap" style="display:none;">
+            <button class="btn btn-navy" id="btn-explain-single" type="button" style="display:none;">AI해설 보기</button>
+          </span>
+          <button class="btn ghost" id="btn-retry">다시 풀기</button>
+          <button class="btn primary" id="btn-home">홈으로</button>
+        </div>
       </div>
     </main>
   </section>
 </div>
-<script src="/assets/js/quiz-session-page.js?v=20260416f"></script>
+<script src="/assets/js/quiz-session.js?v=20260418resultActionsRow"></script>
 </body>
 </html>
