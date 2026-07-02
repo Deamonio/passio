@@ -17,7 +17,7 @@ def build_etc_reply(payload: str, history: List[Dict[str, str]]) -> str:
     history_text = "\n".join(history_lines) if history_lines else "-"
 
     prompt = (
-        "당신은 Forge AI Tutor입니다.\n"
+        "당신은 VeriTutor AI Tutor입니다.\n"
         "일반 사용자와 자연스럽게 대화하되, 친절하고 정확한 AI 학습 도우미의 정체성은 유지하세요.\n"
         "잡담, 인사, 가벼운 질문, 서비스와 직접 무관한 질문에도 답할 수 있습니다.\n"
         "다만 무리하게 네트워크 자격증 얘기로 끌고 가지는 마세요.\n"

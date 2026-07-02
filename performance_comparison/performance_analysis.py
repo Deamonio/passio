@@ -38,7 +38,10 @@ def build_summary() -> pd.DataFrame:
                 "좌표 정확도": round(_safe_mean(df, "좌표일치도"), 4),
                 "계층 이탈률": round(_safe_mean(df, "계층이탈률"), 4),
                 "정답률(Avg)": round(_safe_mean(df, "정답정확도"), 4),
-                "근거 정밀도(Avg)": round(_safe_mean(df, "근거정밀도"), 4),
+                "핵심명제 충실도(Avg)": round(_safe_mean(df, "핵심명제충실도"), 4),
+                "문장기준 충실도(Avg)": round(_safe_mean(df, "문장기준근거충실도"), 4),
+                "근거 정밀도(Top1 Avg)": round(_safe_mean(df, "근거정밀도"), 4),
+                "문서기반 정밀도(Avg)": round(_safe_mean(df, "문서기반근거정밀도"), 4),
                 "환각 발생률(Lower is better)": round(_safe_mean(df, "환각발생률"), 4),
                 "오답소거 논리": round(_safe_mean(df, "오답소거논리점수"), 4),
                 "전문용어 정확도": round(_safe_mean(df, "전문용어정확도"), 4),
@@ -61,14 +64,14 @@ def render_chart(summary: pd.DataFrame) -> None:
         return
     plot_df = summary.melt(
         id_vars="실험군",
-        value_vars=["정답률(Avg)", "근거 정밀도(Avg)"],
+        value_vars=["정답률(Avg)", "핵심명제 충실도(Avg)"],
         var_name="지표",
         value_name="점수",
     )
     plt.figure(figsize=(10, 6))
     sns.barplot(data=plot_df, x="실험군", y="점수", hue="지표")
     plt.ylim(0, 1.05)
-    plt.title("정답률/근거정밀도 실험군별 비교")
+    plt.title("정답률/핵심명제충실도 실험군별 비교")
     plt.tight_layout()
     plt.savefig("results/grouped_bar_chart.png", dpi=160)
     plt.close()
@@ -157,6 +160,9 @@ def write_report(summary: pd.DataFrame) -> None:
         lines.append("## Highlights")
         lines.append("")
         lines.append(f"- 최고 정답률: {best_acc['실험군']} ({best_acc['정답률(Avg)']:.4f})")
+        if "핵심명제 충실도(Avg)" in summary.columns:
+            best_core = summary.sort_values("핵심명제 충실도(Avg)", ascending=False).iloc[0]
+            lines.append(f"- 최고 핵심명제 충실도: {best_core['실험군']} ({best_core['핵심명제 충실도(Avg)']:.4f})")
         lines.append(f"- 최저 지연: {fastest['실험군']} ({fastest['평균지연초']:.4f}s)")
     with open("results/experiment_report.md", "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")

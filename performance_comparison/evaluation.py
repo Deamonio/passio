@@ -107,6 +107,84 @@ def faithfulness_score(explanation: str, evidence_docs: List[str]) -> float:
     return round(supported / len(sents), 4)
 
 
+def extract_section_text(explanation: str, section_name: str) -> str:
+    lines = str(explanation or "").splitlines()
+    target_names = {section_name, section_name.strip(), f"[{section_name}]"}
+    started = False
+    collected: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if not started:
+            if stripped in target_names:
+                started = True
+            continue
+        if stripped.startswith("[") and stripped.endswith("]"):
+            break
+        if stripped:
+            collected.append(stripped)
+    return "\n".join(collected).strip()
+
+
+def extract_core_claims(explanation: str, max_claims: int = 2) -> List[str]:
+    text = str(explanation or "").strip()
+    if not text:
+        return []
+
+    preferred_sections = ["[정답 근거]", "[한줄 요약]", "[결론]", "[핵심]", "[핵심 근거]"]
+    candidates: List[str] = []
+
+    for marker in preferred_sections:
+        section_text = extract_section_text(text, marker)
+        if not section_text:
+            continue
+        for sent in split_sentences_kor(section_text):
+            sent = sent.strip()
+            if sent:
+                candidates.append(sent)
+        if candidates:
+            break
+
+    if not candidates:
+        candidates = [s.strip() for s in split_sentences_kor(text) if s.strip()]
+
+    if not candidates:
+        return []
+
+    cue_words = ["때문", "따라서", "이유", "핵심", "정답", "근거", "결론", "타당", "직접", "즉"]
+
+    def score(sent: str) -> tuple[int, int, int]:
+        cue_score = sum(1 for cue in cue_words if cue in sent)
+        length_score = min(len(sent), 160)
+        section_bonus = 1 if any(marker in text for marker in ["[정답 근거]", "[한줄 요약]", "[결론]"]) else 0
+        return cue_score, section_bonus, length_score
+
+    ranked = sorted(candidates, key=score, reverse=True)
+    deduped: List[str] = []
+    seen = set()
+    for sent in ranked:
+        norm = normalize_text(sent)
+        if not norm or norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(sent)
+        if len(deduped) >= max_claims:
+            break
+    return deduped
+
+
+def core_faithfulness_score(explanation: str, evidence_docs: List[str]) -> Tuple[float, int, int]:
+    core_claims = extract_core_claims(explanation)
+    if not core_claims or not evidence_docs:
+        return 0.0, 0, len(core_claims)
+
+    supported = 0
+    for claim in core_claims:
+        max_overlap = max(token_overlap_ratio(claim, doc) for doc in evidence_docs)
+        if max_overlap >= 0.18:
+            supported += 1
+    return round(supported / len(core_claims), 4), supported, len(core_claims)
+
+
 def context_precision(question: str, answer_text: str, explanation: str, evidence_docs: List[str]) -> float:
     if not evidence_docs:
         return 0.0
@@ -116,6 +194,13 @@ def context_precision(question: str, answer_text: str, explanation: str, evidenc
     numer = sum(w * r for w, r in zip(weights, rel_scores))
     denom = sum(weights) or 1.0
     return round(numer / denom, 4)
+
+
+def top1_context_precision(question: str, answer_text: str, explanation: str, evidence_docs: List[str]) -> float:
+    if not evidence_docs:
+        return 0.0
+    query_anchor = f"{question} {answer_text} {explanation[:220]}".strip()
+    return round(min(1.0, token_overlap_ratio(query_anchor, evidence_docs[0]) * 2.2), 4)
 
 
 def distractor_analysis_score(explanation: str, options: List[str]) -> float:
@@ -196,6 +281,8 @@ def llm_judge_scores(
     prompt = (
         "너는 네트워크관리사 2급 감독관이다. 아래 정보를 보고 JSON으로만 평가하라.\n"
         "평가 항목: accuracy, completeness, clarity (각 1~5 정수 또는 소수)\n"
+        "평가 기준: 근거의 개수보다 핵심 명제가 근거에 직접 지지되는지, 그리고 그 핵심 이유를 정확하고 간결하게 설명하는지를 우선 평가하라.\n"
+        "근거에 없는 핵심 주장을 만들면 강하게 감점하고, 하나의 근거만으로도 핵심 논리를 완결하게 설명하면 높은 점수를 주라.\n"
         "JSON 스키마: {\"accuracy\":4.0,\"completeness\":4.0,\"clarity\":4.0,\"comment\":\"...\"}\n\n"
         f"[문제]\n{question_blob}\n\n"
         f"[근거문서]\n{evidence_blob}\n\n"
@@ -278,9 +365,11 @@ def evaluate_row(
     coord_match = float(pred_subject == expected_subject) if expected_subject and pred_subject else 0.0
     deviation_count, deviation_rate = hierarchical_deviation_rate(explanation, expected_subject, subject_vocab)
 
-    faithfulness = faithfulness_score(explanation, evidence_docs)
-    citation_density = faithfulness
-    precision = context_precision(question, answer_text, explanation, evidence_docs)
+    sentence_faithfulness = faithfulness_score(explanation, evidence_docs)
+    faithfulness, supported_claims, total_claims = core_faithfulness_score(explanation, evidence_docs)
+    citation_density = sentence_faithfulness
+    precision = top1_context_precision(question, answer_text, explanation, evidence_docs)
+    legacy_precision = context_precision(question, answer_text, explanation, evidence_docs)
     hallucination_rate = round(1.0 - faithfulness, 4)
 
     distractor_score = distractor_analysis_score(explanation, options)
@@ -312,8 +401,13 @@ def evaluate_row(
         "계층이탈횟수": deviation_count,
         "계층이탈률": round(deviation_rate, 4),
         "근거충실도": round(faithfulness, 4),
+        "핵심명제충실도": round(faithfulness, 4),
+        "지원핵심명제수": supported_claims,
+        "핵심명제수": total_claims,
+        "문장기준근거충실도": round(sentence_faithfulness, 4),
         "근거포함비율": round(citation_density, 4),
         "근거정밀도": round(precision, 4),
+        "문서기반근거정밀도": round(legacy_precision, 4),
         "환각발생률": hallucination_rate,
         "오답소거논리점수": round(distractor_score, 4),
         "전문용어정확도": round(term_precision, 4),

@@ -1,6 +1,6 @@
 
 """
-sikdorak-python-api (FastAPI)
+veritutor-python-api (FastAPI)
 ─────────────────────────────
 • 동기 RAG 엔드포인트: Ollama + Chroma 기반 `solve_items()` (CPU/IO 집중)
 • asyncpg 기반 관리/조회 API 일부
@@ -34,93 +34,75 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field
 from starlette.responses import Response
 
 from .rag.engine import solve_items
-from .rag.chroma_store import get_langchain_chroma
 from .rag.conversation_context import (
     augment_payload_for_ontology_followup,
     format_history_for_leg_prompt,
     history_suggests_problem_explain,
 )
-from .rag.concept_explain_leg import (
-    build_concept_explain_leg_prompt,
-    format_concept_explain_leg_for_chat,
-)
 from .rag.etc_reply import build_etc_reply as build_etc_reply_external
 from .rag.mcq_payload import format_leg_report_for_chat, try_build_exam_item_for_explain_problem
 from .rag.ontology_engine import ForgeOntologyEngine
-from .rag.models import EvidenceItem, ExamItem, SolveRequest, SolveResponse
-from .rag.problem_explain_leg import (
-    extract_problem_explain_leg_json,
-    has_nonempty_problem_explain_leg_refined,
-    is_problem_explain_leg_audit_consistent,
-    is_problem_explain_leg_body_valid,
-    normalize_problem_explain_leg_report,
-    repair_problem_explain_leg_audit,
+from .rag.models import ExamItem, SolveRequest, SolveResponse
+from .rag.rag_service import (
+    build_concept_explain_leg_reply as _build_concept_explain_leg_reply,
+    build_general_rag_reply as _build_general_rag_reply,
+    find_related_questions as _find_related_questions,
+    format_question_search_reply as _format_question_search_reply,
+    resolve_referenced_question_payload as _resolve_referenced_question_payload,
+)
+from .rag.mock_exam_service import (
+    MOCK_EXAM_CONTEXT_END as MOCK_CONTEXT_END_MARKER,
+    MOCK_EXAM_CONTEXT_START as MOCK_CONTEXT_START_MARKER,
+    build_mock_exam_leg_reply as _build_mock_exam_leg_reply,
+    build_mock_exam_overview as _build_mock_exam_overview,
+    build_mock_numbered_leg_reply as _build_mock_numbered_leg_reply,
+    extract_mock_exam_context as _extract_mock_exam_context,
+    extract_mock_question_numbers as _extract_mock_question_numbers,
+    extract_mock_related_search_hint as _extract_mock_related_search_hint,
+    mock_find_question as _mock_find_question,
+    mock_find_questions_by_term as _mock_find_questions_by_term,
+    mock_top_concepts as _mock_top_concepts,
+    mock_wrong_questions as _mock_wrong_questions,
+    strip_mock_exam_context_block as _strip_mock_exam_context_block,
+)
+from .rag.ontology.intents.question_search_intent import (
+    analysis_intent_sequence as _analysis_intent_sequence,
+    extract_requested_question_count as _extract_requested_question_count,
+    normalize_lookup_text as _normalize_lookup_text,
+    payload_has_question_block as _payload_has_question_block,
+    payload_wants_question_search as _payload_wants_question_search,
+    wants_question_search as _wants_question_search,
+)
+from .rag.ontology.intents.mock_exam_intent import (
+    payload_excludes_mock_context as _payload_excludes_mock_context,
+    wants_mock_exam_analysis as _wants_mock_exam_analysis,
 )
 from .schemas import HealthResponse
 from .settings import settings
+from .utils import mask_sensitive
+
 
 # solve 경로는 Chroma를 주로 읽기만 하지만, SQLite 백엔드에서 동시 접근이 겹치면
 # busy/timeout이 날 수 있어 완전 무제한 병렬은 피하고 제한적 병렬만 허용합니다.
-# (과거 전역 Lock은 모든 요청을 1개로 직렬화 → 대기열 지연 폭증)
 _rag_solve_semaphore = threading.BoundedSemaphore(settings.RAG_SOLVE_MAX_PARALLEL)
 _forge_ontology_engine = ForgeOntologyEngine(cert_name=settings.CERT_NAME)
-
-# ─────────────────────────────────────────────
-# 로깅 설정
-# ─────────────────────────────────────────────
 
 # database 주소 환경변수에서 읽기 (예: postgresql://user:password@host:port/dbname)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/sikdorak" # 기본값
+    "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/veritutor",
 )
 API_LOG_JSONL_PATH = Path(
-    os.getenv("API_LOG_JSONL_PATH", "/tmp/sikdorak_api_request_logs.jsonl")
+    os.getenv("API_LOG_JSONL_PATH", "/tmp/veritutor_api_request_logs.jsonl")
 ).expanduser().resolve()
 
-
-from .utils import mask_sensitive
-
-
-QUESTION_SEARCH_KEYWORDS = (
-    "유사문제",
-    "비슷한 문제",
-    "관련 문제",
-    "문제 몇 개",
-    "기출문제",
-    "연습문제",
-    "문제 찾아",
-    "문제 추천",
-    "문제 줘",
-    "similar question",
-    "similar questions",
-    "practice problem",
-    "practice problems",
-    "find questions",
-    "세트",
-    "문제 세트",
-    "set of",
-)
-
-MOCK_EXAM_CONTEXT_START = "[FORGE_MOCK_EXAM_CONTEXT]"
-MOCK_EXAM_CONTEXT_END = "[/FORGE_MOCK_EXAM_CONTEXT]"
-
-
-def _strip_mock_exam_context_block(text: str) -> str:
-    raw = str(text or "")
-    if not raw:
-        return ""
-    pattern = re.compile(
-        re.escape(MOCK_EXAM_CONTEXT_START) + r"\s*.*?\s*" + re.escape(MOCK_EXAM_CONTEXT_END),
-        re.DOTALL,
-    )
-    cleaned = pattern.sub("", raw)
-    return cleaned.strip()
+MOCK_EXAM_CONTEXT_START = MOCK_CONTEXT_START_MARKER
+MOCK_EXAM_CONTEXT_END = MOCK_CONTEXT_END_MARKER
 
 
 async def log_api_request_jsonl(
@@ -176,622 +158,26 @@ def _dispatch_api_logs(
     ))
 
 
-def _format_analysis_coords(analysis: Any) -> str:
-    coords = getattr(analysis, "coordinates", None) or []
-    parts: List[str] = []
-    for coord in coords:
-        if hasattr(coord, "subject"):
-            subject = str(getattr(coord, "subject", "") or "").strip()
-            chapter = str(getattr(coord, "chapter", "") or "").strip()
-            concept = str(getattr(coord, "concept", "") or "").strip()
-        elif isinstance(coord, dict):
-            subject = str(coord.get("subject", "") or "").strip()
-            chapter = str(coord.get("chapter", "") or "").strip()
-            concept = str(coord.get("concept", "") or "").strip()
-        else:
-            continue
-        label = " > ".join(x for x in [subject, chapter, concept] if x)
-        if label:
-            parts.append(label)
-    return ", ".join(parts[:4])
-
-
-def _normalize_lookup_text(text: str) -> str:
-    return re.sub(r"\s+", " ", str(text or "").strip().lower())
-
-
-def _extract_requested_question_count(payload: str) -> int:
-    match = re.search(r"(\d{1,2})\s*(개|문제)", str(payload or ""))
-    if match:
-        try:
-            return max(1, min(int(match.group(1)), 10))
-        except ValueError:
-            pass
-    return 3
-
-
-def _has_explicit_question_search_request(payload: str) -> bool:
-    text = _normalize_lookup_text(payload)
-    compact = text.replace(" ", "")
-    if any(
-        _normalize_lookup_text(keyword) in text
-        or _normalize_lookup_text(keyword).replace(" ", "") in compact
-        for keyword in QUESTION_SEARCH_KEYWORDS
-    ):
-        return True
-    bank_lookup_intent = (
-        "문제은행" in text
-        and any(keyword in text for keyword in ("관련", "유사", "찾", "뽑", "추천", "기출", "연습"))
-    )
-    if bank_lookup_intent:
-        return True
-    return any(keyword in text for keyword in ("기출", "유형문제", "문제 더", "추가 문제", "더 찾아", "추천 문제"))
-
-
-def _wants_question_search(payload: str, analysis: Any) -> bool:
-    text = _normalize_lookup_text(payload)
-    explicit_search = _has_explicit_question_search_request(payload)
-    intent = str(getattr(analysis, "intent", "") or "")
-    sequence = _analysis_intent_sequence(analysis) if analysis else []
-    if intent == "QUESTION_SEARCH":
-        return True
-    if "QUESTION_SEARCH" in sequence:
-        # For pure problem explanation, require explicit search wording.
-        if intent == "EXPLAIN_PROBLEM" and not explicit_search:
-            return False
-        return True
-    if intent not in {"FOLLOWUP", "CONCEPT_EXPLAIN", "QUIZ_REQUEST", "EXPLAIN_PROBLEM"}:
-        return False
-    if explicit_search:
-        return True
-    count = _extract_requested_question_count(payload)
-    if count >= 5 and ("문제" in text or "question" in text):
-        return True
-    return False
-
-
-def _payload_has_question_block(payload: str) -> bool:
-    text = str(payload or "")
-    if "[문제]" in text and "[보기]" in text:
-        return True
-    numbered_style = all(
-        re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
-        for pattern in (
-            r"^\s*1\s*[\)\.]",
-            r"^\s*2\s*[\)\.]",
-            r"^\s*3\s*[\)\.]",
-            r"^\s*4\s*[\)\.]",
-        )
-    )
-    circled_style = all(mark in text for mark in ("①", "②", "③", "④"))
-    return numbered_style or circled_style
-
-
-def _analysis_intent_sequence(analysis: Any) -> List[str]:
-    allowed = {
-        "QUIZ_REQUEST",
-        "QUESTION_SEARCH",
-        "CONCEPT_EXPLAIN",
-        "EXPLAIN_PROBLEM",
-        "FOLLOWUP",
-        "SYSTEM_CONTROL",
-        "MOCK_EXAM_ANALYZE",
-        "ETC",
-    }
-    seq: List[str] = []
-    raw_seq = getattr(analysis, "intent_sequence", None)
-    if isinstance(raw_seq, list):
-        for item in raw_seq:
-            tag = str(item or "").strip()
-            if tag in allowed and tag not in seq:
-                seq.append(tag)
-    intent = str(getattr(analysis, "intent", "") or "").strip()
-    if intent in allowed and intent not in seq:
-        seq.insert(0, intent)
-    return seq
-
-
-def _wants_mock_exam_analysis(payload_raw: str, history: List[Dict[str, str]], analysis: Any | None = None) -> bool:
-    context = _extract_mock_exam_context(payload_raw, history)
-    if not context:
-        return False
-    user_text_raw = _strip_mock_exam_context_block(payload_raw)
-
-    text = _normalize_lookup_text(user_text_raw)
-    compact = text.replace(" ", "")
-    numbers = _extract_mock_question_numbers(user_text_raw)
-
-    excludes_mock_context = (
-        any(term in text for term in ("상관없이", "무관하게", "무관", "제외", "빼고", "말고"))
-        and any(term in text for term in ("모의고사", "mock"))
-    )
-
-    if excludes_mock_context and not numbers:
-        return False
-
-    seq = _analysis_intent_sequence(analysis) if analysis is not None else []
-    if "MOCK_EXAM_ANALYZE" in seq:
-        return True
-
-    has_explicit_mock_term = any(
-        keyword in text for keyword in ("모의고사", "이번 시험", "이 시험", "푼 모의고사", "mock exam", "mock")
-    )
-    has_mock_stats_intent = any(
-        keyword in text
-        for keyword in (
-            "오답",
-            "틀린",
-            "정답률",
-            "취약",
-            "빈출",
-            "중복",
-            "패턴",
-            "점수",
-            "과목별",
-            "분석",
-            "학습",
-            "우선순위",
-        )
-    )
-    has_numbered_followup = bool(numbers) and any(
-        keyword in text for keyword in ("해설", "풀이", "설명", "복기", "왜", "정답", "오답")
-    )
-
-    # If the user clearly asks for question-bank retrieval, avoid forcing mock-analysis.
-    wants_question_bank = (
-        _payload_wants_question_search(user_text_raw)
-        or "문제은행" in text
-        or "question bank" in text
-        or "questionbank" in compact
-    )
-    if wants_question_bank and not (has_explicit_mock_term or has_numbered_followup):
-        return False
-
-    return has_explicit_mock_term or has_mock_stats_intent or has_numbered_followup
-
-
-def _extract_question_reference_index(payload: str) -> int | None:
-    text = str(payload or "")
-    for pattern in (r"(?:^|\s)(\d{1,2})번", r"#(\d{1,2})", r"(?:number|no\.?|item)\s*(\d{1,2})"):
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return None
-    return None
-
-
-def _extract_recommended_questions_from_history(history: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-    pattern = re.compile(
-        r"\[추천 문제\s+(?P<idx>\d+)\]\s*\n\[문제\]\n(?P<question>.*?)\n\n\[보기\]\n(?P<options>.*?)(?:\n\n\[정답\]\n(?P<answer>.*?))?(?=\n\[추천 문제\s+\d+\]|\Z)",
-        re.DOTALL,
-    )
-    for msg in reversed(history or []):
-        if str(msg.get("role", "")) != "assistant":
-            continue
-        content = str(msg.get("content", "") or "")
-        matches = list(pattern.finditer(content))
-        if not matches:
-            continue
-        out: List[Dict[str, Any]] = []
-        for match in matches:
-            options = []
-            for line in str(match.group("options") or "").splitlines():
-                cleaned = re.sub(r"^\s*\d+\)\s*", "", line).strip()
-                if cleaned:
-                    options.append(cleaned)
-            if len(options) != 4:
-                continue
-            out.append(
-                {
-                    "index": int(match.group("idx")),
-                    "question": str(match.group("question") or "").strip(),
-                    "options": options,
-                    "answer_choice": str(match.group("answer") or "").strip(),
-                }
-            )
-        if out:
-            return out
-    return []
-
-
-def _resolve_referenced_question_payload(payload: str, history: List[Dict[str, str]]) -> str:
-    reference_index = _extract_question_reference_index(payload)
-    if not reference_index:
-        return payload
-    recommended = _extract_recommended_questions_from_history(history)
-    target = next((item for item in recommended if int(item.get("index", 0)) == reference_index), None)
-    if not target:
-        return payload
-    option_lines = "\n".join(
-        f"{idx + 1}) {option}" for idx, option in enumerate(target.get("options") or [])
-    )
-    blocks = [
-        f"[사용자 메시지]\n{payload.strip()}",
-        f"[문제]\n{str(target.get('question', '') or '').strip()}",
-        f"[보기]\n{option_lines}",
-    ]
-    answer_choice = str(target.get("answer_choice", "") or "").strip()
-    if answer_choice:
-        blocks.append(f"[정답]\n{answer_choice}")
-    return "\n\n".join(blocks).strip()
-
-
-def _collect_question_search_terms(payload: str, analysis: Any) -> List[str]:
-    terms: List[str] = []
-    coordinate = getattr(analysis, "coordinate", None)
-    for value in (
-        getattr(coordinate, "concept", "") if coordinate else "",
-        getattr(coordinate, "chapter", "") if coordinate else "",
-        getattr(analysis, "search_query", ""),
-    ):
-        cleaned = str(value or "").strip()
-        if cleaned:
-            terms.append(cleaned)
-    for entity in getattr(analysis, "entities", None) or []:
-        cleaned = str(entity or "").strip()
-        if cleaned:
-            terms.append(cleaned)
-    for token in re.split(r"[^0-9A-Za-z가-힣]+", str(payload or "")):
-        cleaned = token.strip()
-        if len(cleaned) >= 2 and cleaned not in {"문제", "유사", "설명", "개념", "해설", "찾아", "줘"}:
-            terms.append(cleaned)
-    seen: set[str] = set()
-    out: List[str] = []
-    for term in terms:
-        norm = _normalize_lookup_text(term)
-        if not norm or norm in seen:
-            continue
-        seen.add(norm)
-        out.append(term)
-        if len(norm) >= 4:
-            shortened = term[:-1].strip()
-            shortened_norm = _normalize_lookup_text(shortened)
-            if shortened_norm and shortened_norm not in seen:
-                seen.add(shortened_norm)
-                out.append(shortened)
-    return out[:12]
-
-
-async def _find_related_questions(payload: str, analysis: Any, limit: int = 3) -> List[Dict[str, Any]]:
-    limit = max(1, min(int(limit or 3), 10))
-    coordinate = getattr(analysis, "coordinate", None)
-    subject = str(getattr(coordinate, "subject", "") or "").strip()
-    terms = _collect_question_search_terms(payload, analysis)
-    
-    conn = await asyncpg.connect(DATABASE_URL)
-    try:
-        # Prepare search terms for similarity matching
-        search_text = " ".join(terms) if terms else payload
-        
-        # Use Postgres trigram similarity for better search results
-        if subject:
-            # Subject-specific search with similarity scoring
-            query = """
-                SELECT id, subject, question, option1, option2, option3, option4, answer,
-                       ontology_subject, ontology_chapter, ontology_concept,
-                       (
-                           GREATEST(
-                               COALESCE(similarity(question, $1), 0),
-                               COALESCE(similarity(option1, $1), 0),
-                               COALESCE(similarity(option2, $1), 0),
-                               COALESCE(similarity(option3, $1), 0),
-                               COALESCE(similarity(option4, $1), 0),
-                               COALESCE(similarity(COALESCE(ontology_concept, ''), $1), 0) * 0.8
-                           ) +
-                           CASE WHEN subject = $2 THEN 0.3 ELSE 0 END +
-                           CASE WHEN ontology_subject = $2 THEN 0.2 ELSE 0 END
-                       ) as relevance
-                FROM questions
-                WHERE subject = $2 
-                   OR similarity(question, $1) > 0.15
-                   OR similarity(option1 || ' ' || option2 || ' ' || option3 || ' ' || option4, $1) > 0.15
-                   OR similarity(COALESCE(ontology_concept, ''), $1) > 0.2
-                ORDER BY relevance DESC, id ASC
-                LIMIT $3
-            """
-            rows = await conn.fetch(query, search_text, subject, limit + 5)
-        else:
-            # General search with similarity scoring
-            query = """
-                SELECT id, subject, question, option1, option2, option3, option4, answer,
-                       ontology_subject, ontology_chapter, ontology_concept,
-                       (
-                           GREATEST(
-                               COALESCE(similarity(question, $1), 0),
-                               COALESCE(similarity(option1, $1), 0),
-                               COALESCE(similarity(option2, $1), 0),
-                               COALESCE(similarity(option3, $1), 0),
-                               COALESCE(similarity(option4, $1), 0),
-                               COALESCE(similarity(COALESCE(ontology_concept, ''), $1), 0) * 0.8
-                           )
-                       ) as relevance
-                FROM questions
-                WHERE similarity(question, $1) > 0.15
-                   OR similarity(option1 || ' ' || option2 || ' ' || option3 || ' ' || option4, $1) > 0.15
-                   OR similarity(COALESCE(ontology_concept, ''), $1) > 0.2
-                ORDER BY relevance DESC, id ASC
-                LIMIT $2
-            """
-            rows = await conn.fetch(query, search_text, limit + 5)
-    finally:
-        await conn.close()
-
-    # Format results
-    results = [
-        {
-            "id": int(row["id"]),
-            "subject": str(row["subject"]),
-            "question": str(row["question"]),
-            "options": [str(row["option1"]), str(row["option2"]), str(row["option3"]), str(row["option4"])],
-            "answer_choice": str(row["answer"]),
-        }
-        for row in rows[:limit]
-    ]
-    
-    if results:
-        return results
-    
-    # Fallback: Return top questions by subject if no similarity matches found
-    conn = await asyncpg.connect(DATABASE_URL)
-    try:
-        if subject:
-            fallback_query = """
-                SELECT id, subject, question, option1, option2, option3, option4, answer,
-                       ontology_subject, ontology_chapter, ontology_concept
-                FROM questions
-                WHERE subject = $1
-                ORDER BY id DESC
-                LIMIT $2
-            """
-            rows = await conn.fetch(fallback_query, subject, limit)
-        else:
-            fallback_query = """
-                SELECT id, subject, question, option1, option2, option3, option4, answer,
-                       ontology_subject, ontology_chapter, ontology_concept
-                FROM questions
-                ORDER BY id DESC
-                LIMIT $1
-            """
-            rows = await conn.fetch(fallback_query, limit)
-    finally:
-        await conn.close()
-    
-    return [
-        {
-            "id": int(row["id"]),
-            "subject": str(row["subject"]),
-            "question": str(row["question"]),
-            "options": [str(row["option1"]), str(row["option2"]), str(row["option3"]), str(row["option4"])],
-            "answer_choice": str(row["answer"]),
-        }
-        for row in rows
-    ]
-
-
-def _format_question_search_reply(questions: List[Dict[str, Any]], analysis: Any) -> str:
-    coordinate = getattr(analysis, "coordinate", None)
-    concept = str(getattr(coordinate, "concept", "") or "").strip()
-    chapter = str(getattr(coordinate, "chapter", "") or "").strip()
-    topic = concept or chapter or "요청 주제"
-    if not questions:
-        return f"{topic} 기준으로 강한 일치 문제를 아직 찾지 못했어요. 개념명을 조금 더 구체적으로 알려주면 다시 찾아볼게요."
-    return (
-        f"{topic} 기준으로 관련 문제 {len(questions)}개를 찾았어요.\n\n"
-        "원하면 '#1 해설해줘'처럼 번호를 지정해서 바로 이어서 풀이할 수 있어요."
-    )
-
-
-def _build_general_rag_reply(
-    *,
-    payload: str,
-    history: List[Dict[str, str]],
-    analysis: Any,
-) -> tuple[str, List[EvidenceItem]]:
-    query = str(getattr(analysis, "search_query", "") or "").strip() or payload
-    coords = _format_analysis_coords(analysis)
-    if coords:
-        query = f"{query}\n온톨로지 좌표: {coords}"
-
-    embed = OllamaEmbeddings(
-        model=settings.OLLAMA_EMBED_MODEL,
-        base_url=settings.OLLAMA_HOST,
-    )
-    db = get_langchain_chroma(embedding_function=embed)
-    scored_docs = db.similarity_search_with_relevance_scores(query, k=6)
-    docs = [doc for doc, score in scored_docs if score >= 0.25][:4]
-    if not docs:
-        docs = [doc for doc, _ in scored_docs[:3]]
-
-    evidence = [
-        EvidenceItem(id=index + 1, text=str(doc.page_content or "").strip())
-        for index, doc in enumerate(docs)
-        if str(doc.page_content or "").strip()
-    ]
-    context = "\n\n".join(
-        f"[{item.id}] {item.text[:1400]}" for item in evidence
-    )
-    history_lines = []
-    for message in history[-6:]:
-        role = str(message.get("role", "user") or "user").strip()
-        content = str(message.get("content", "") or "").strip()
-        if content:
-            history_lines.append(f"[{role}] {content[:1200]}")
-    history_text = "\n".join(history_lines) if history_lines else "-"
-
-    prompt = (
-        "당신은 네트워크관리사 학습을 돕는 AI 튜터입니다.\n"
-        "반드시 [검색 문맥] 안에서만 설명하고, 문맥에 없는 내용을 단정하지 마세요.\n"
-        "답변은 한국어 평문으로 작성하고, 제목 장식 없이 바로 설명하세요.\n"
-        "문제 해설 톤이 아니라 GPT/Gemini처럼 자연스러운 일반 답변 형태로 작성하세요.\n"
-        "사용자가 초보자면 개념을 먼저 한 줄 요약하고, 그 다음 원리와 예시를 설명하세요.\n\n"
-        f"[intent]\n{getattr(analysis, 'intent', '')}\n\n"
-        f"[온톨로지 좌표]\n{coords or '-'}\n\n"
-        f"[이전 대화]\n{history_text}\n\n"
-        f"[검색 문맥]\n{context or '검색 문맥 없음'}\n\n"
-        f"[사용자 질문]\n{payload}\n"
-    )
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_HOST,
-        temperature=0,
-        num_predict=min(settings.OLLAMA_SOLVE_NUM_PREDICT, 2048),
-    )
-    reply = str(llm.invoke(prompt, think=False).content or "").strip()
-    if not reply:
-        reply = str(getattr(analysis, "response_message", "") or "").strip()
-    if not reply:
-        reply = "질문을 분석했지만 바로 설명을 만들지 못했습니다. 질문을 조금 더 구체적으로 보내 주세요."
-    return reply, evidence
-
-
-def _build_etc_reply(
-    *,
-    payload: str,
-    history: List[Dict[str, str]],
-) -> str:
-    history_lines = []
-    for message in history[-8:]:
-        role = str(message.get("role", "user") or "user").strip()
-        content = str(message.get("content", "") or "").strip()
-        if content:
-            history_lines.append(f"[{role}] {content[:1200]}")
-    history_text = "\n".join(history_lines) if history_lines else "-"
-
-    prompt = (
-        "당신은 Forge AI Tutor입니다.\n"
-        "일반 사용자와 자연스럽게 대화하되, 친절하고 정확한 AI 학습 도우미의 정체성은 유지하세요.\n"
-        "잡담, 인사, 가벼운 질문, 서비스와 직접 무관한 질문에도 답할 수 있습니다.\n"
-        "다만 무리하게 네트워크 자격증 얘기로 끌고 가지는 마세요.\n"
-        "답변은 한국어로, 자연스럽고 부담 없게 작성하세요.\n"
-        "이전 대화 맥락이 있으면 이어지는 대화처럼 반영하세요.\n"
-        "서비스 소개가 필요한 상황이면 사용자가 쉽게 이해할 수 있는 말로 설명하세요.\n\n"
-        f"[이전 대화]\n{history_text}\n\n"
-        f"[사용자 메시지]\n{payload}\n"
-    )
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_HOST,
-        temperature=0.3,
-        num_predict=min(settings.OLLAMA_SOLVE_NUM_PREDICT, 1536),
-    )
-    reply = str(llm.invoke(prompt, think=False).content or "").strip()
-    return reply or "안녕하세요. 편하게 말씀해 주세요. 제가 이해할 수 있는 범위에서 최대한 자연스럽고 정확하게 도와드릴게요."
-
-
-def _retrieve_general_rag_evidence(
-    *,
-    payload: str,
-    analysis: Any,
-) -> tuple[str, str, list[Any], list[EvidenceItem]]:
-    query = str(getattr(analysis, "search_query", "") or "").strip() or payload
-    coords = _format_analysis_coords(analysis)
-    if coords:
-        query = f"{query}\n온톨로지 좌표: {coords}"
-
-    embed = OllamaEmbeddings(
-        model=settings.OLLAMA_EMBED_MODEL,
-        base_url=settings.OLLAMA_HOST,
-    )
-    db = get_langchain_chroma(embedding_function=embed)
-    scored_docs = db.similarity_search_with_relevance_scores(query, k=6)
-    docs = [doc for doc, score in scored_docs if score >= 0.25][:4]
-    if not docs:
-        docs = [doc for doc, _ in scored_docs[:3]]
-
-    evidence = [
-        EvidenceItem(id=index + 1, text=str(doc.page_content or "").strip())
-        for index, doc in enumerate(docs)
-        if str(doc.page_content or "").strip()
-    ]
-    context = "\n\n".join(
-        f"[{item.id}] {item.text[:1400]}" for item in evidence
-    )
-    return query, coords, docs, evidence
-
-
-def _build_concept_explain_leg_reply(
-    *,
-    payload: str,
-    history: List[Dict[str, str]],
-    analysis: Any,
-) -> tuple[dict, list[EvidenceItem], str]:
-    _, _, docs, evidence = _retrieve_general_rag_evidence(payload=payload, analysis=analysis)
-    context = "\n\n".join(f"[{item.id}] {item.text[:1400]}" for item in evidence)
-    history_text = format_history_for_leg_prompt(history, max_chars=6000)
-    user_request = payload.strip() or "-"
-    prompt = build_concept_explain_leg_prompt(
-        context=context or "검색 문맥 없음",
-        topic=payload,
-        conversation_context=history_text or "-",
-        user_message=user_request,
-        doc_count=len(docs),
-    )
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_HOST,
-        temperature=0,
-        format="json",
-        num_predict=min(settings.OLLAMA_SOLVE_NUM_PREDICT, 3072),
-    )
-    response = llm.invoke(prompt, think=False)
-    report = normalize_problem_explain_leg_report(
-        extract_problem_explain_leg_json(str(response.content or "").strip())
-    )
-    if (
-        not is_problem_explain_leg_audit_consistent(report)
-        or not has_nonempty_problem_explain_leg_refined(report)
-    ):
-        report = repair_problem_explain_leg_audit(report, docs, llm)
-    if not is_problem_explain_leg_body_valid(report):
-        raise ValueError("concept_leg_body_invalid")
-    return report, evidence, format_concept_explain_leg_for_chat(report)
-    asyncio.create_task(log_api_request_jsonl(
-        endpoint=endpoint,
-        method=method,
-        user_id=user_id,
-        request_payload=request_payload,
-        response_payload=response_payload,
-        status_code=status_code,
-        error_message=error_message,
-        response_time_ms=response_time_ms,
-    ))
-
 async def _rag_startup_warmup() -> None:
-    """
-    첫 실제 사용자 요청 전에 Ollama에 짧은 생성을 한 번 보내 콜드 스타트 완화.
-    AI 모델은 첫 실행 시 로딩 시간이 깁니다.
-    서버가 켜질 때 아무 의미 없는 마침표(.)를 하나 던져서 모델을 미리 메모리에 올려두는 "예열" 과정입니다.
-    
-    - model: 사용할 Ollama 모델명
-    - base_url: Ollama 서버 주소
-    - temperature: 모델의 창의성(0=고정, 1=자유)
-    - num_predict: 최대 생성 토큰 수
-    
-    예외 발생 시 서비스에는 영향 없음.
-    """
-    await asyncio.sleep(1.0) # 앱 초기화 안정화 대기
+    """앱 시작 직후 Ollama를 짧게 예열해 첫 요청 지연을 줄인다."""
+    await asyncio.sleep(1.0)
     try:
         from langchain_ollama import ChatOllama
 
         def _ping() -> None:
             chat = ChatOllama(
-                model=settings.OLLAMA_MODEL,  # 사용할 Ollama 모델명
-                base_url=settings.OLLAMA_HOST, # Ollama 서버 주소
-                temperature=0,  # 이 값은 모델이 단어를 선택할 때 얼마나 확률적으로(창의적으로) 행동할지를 결정합니다. 범위는 보통 0에서 2 사이입니다.
-                num_predict=24, # 모델이 최대 몇 개의 토큰(단어 조각)을 생성할지 제한하는 설정입니다.
+                model=settings.OLLAMA_MODEL,
+                base_url=settings.OLLAMA_HOST,
+                temperature=0,
+                num_predict=24,
             )
             chat.invoke(".", think=False)
 
-        loop = asyncio.get_event_loop() # 이벤트 루프 호출
-        await asyncio.wait_for(loop.run_in_executor(None, _ping), timeout=120.0) # 별도의 스레드에서 _ping 실행, 최대 120초 대기(sub thread)
+        loop = asyncio.get_event_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, _ping), timeout=120.0)
         print("[RAG warmup] ollama short invoke ok")
     except Exception as exc:
         print("[RAG warmup] skipped:", exc)
-
-
-
 
 
 @asynccontextmanager
@@ -802,7 +188,14 @@ async def _app_lifespan(app):
 
 
 # FastAPI 앱 인스턴스 및 미들웨어 설정
-app = FastAPI(title="sikdorak-python-api", version="1.0.0", lifespan=_app_lifespan)
+app = FastAPI(
+    title="sikdorak-python-api",
+    version="1.0.0",
+    lifespan=_app_lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # 운영 환경에서는 제한 필요
@@ -933,6 +326,17 @@ async def forge_analyze(body: ForgeAnalyzeRequest):
         history=hist,
     )
 
+    if _payload_excludes_mock_context(payload_user) and str(getattr(result, "intent", "") or "") == "MOCK_EXAM_ANALYZE":
+        patched_sequence = [tag for tag in _analysis_intent_sequence(result) if tag != "MOCK_EXAM_ANALYZE"]
+        if "CONCEPT_EXPLAIN" not in patched_sequence:
+            patched_sequence.insert(0, "CONCEPT_EXPLAIN")
+        result = result.model_copy(update={
+            "intent": "CONCEPT_EXPLAIN",
+            "intent_sequence": patched_sequence,
+            "status": "COMPLETE",
+            "response_message": "",
+        })
+
     intent_sequence = _analysis_intent_sequence(result)
     if _wants_mock_exam_analysis(payload_raw, hist, result):
         mock_exam_out = await _handle_mock_exam_analysis(payload_raw, hist, result)
@@ -1012,6 +416,7 @@ async def forge_analyze(body: ForgeAnalyzeRequest):
 
     if leg_message and wants_question_search:
         questions = await _find_related_questions(
+            database_url=DATABASE_URL,
             payload=payload_user,
             analysis=result,
             limit=_extract_requested_question_count(payload_user),
@@ -1052,6 +457,7 @@ async def forge_analyze(body: ForgeAnalyzeRequest):
                 analysis=result,
             )
             questions = await _find_related_questions(
+                database_url=DATABASE_URL,
                 payload=payload_user,
                 analysis=result,
                 limit=_extract_requested_question_count(payload_user),
@@ -1069,6 +475,7 @@ async def forge_analyze(body: ForgeAnalyzeRequest):
 
     if wants_question_search:
         questions = await _find_related_questions(
+            database_url=DATABASE_URL,
             payload=payload_user,
             analysis=result,
             limit=_extract_requested_question_count(payload_user),
@@ -1685,377 +1092,6 @@ def _coerce_json_object(value: Any) -> Dict[str, Any]:
     return {}
 
 
-def _extract_mock_exam_context_from_text(text: str) -> Dict[str, Any]:
-    raw = str(text or "")
-    if not raw:
-        return {}
-
-    pattern = re.compile(
-        re.escape(MOCK_EXAM_CONTEXT_START) + r"\s*(.*?)\s*" + re.escape(MOCK_EXAM_CONTEXT_END),
-        re.DOTALL,
-    )
-    matches = pattern.findall(raw)
-    if not matches:
-        return {}
-
-    # Prefer the latest embedded context block when multiple snapshots exist.
-    for blob in reversed(matches):
-        try:
-            decoded = json.loads(str(blob).strip())
-            if isinstance(decoded, dict):
-                return decoded
-        except Exception:
-            continue
-    return {}
-
-
-def _extract_mock_exam_context(payload: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
-    context = _extract_mock_exam_context_from_text(payload)
-    if context:
-        return context
-
-    history = history or []
-    for item in reversed(history):
-        context = _extract_mock_exam_context_from_text(str(item.get("content") or ""))
-        if context:
-            return context
-
-    # Fallback for edge cases where start/end markers got split across messages.
-    merged_history = "\n\n".join(str(item.get("content") or "") for item in history)
-    if merged_history:
-        context = _extract_mock_exam_context_from_text(merged_history)
-        if context:
-            return context
-    return {}
-
-
-def _extract_mock_question_numbers(payload: str) -> List[int]:
-    numbers = [int(value) for value in re.findall(r"(\d{1,2})\s*번", str(payload or ""))]
-    out: List[int] = []
-    for value in numbers:
-        if 1 <= value <= 50 and value not in out:
-            out.append(value)
-    return out
-
-
-def _extract_mock_subject_label(payload: str) -> str:
-    match = re.search(r"([1-4]과목)", str(payload or ""))
-    return str(match.group(1)) if match else ""
-
-
-def _mock_context_questions(context: Dict[str, Any]) -> List[Dict[str, Any]]:
-    questions = context.get("questions") or []
-    return questions if isinstance(questions, list) else []
-
-
-def _mock_find_question(context: Dict[str, Any], exam_index: int) -> Dict[str, Any]:
-    for item in _mock_context_questions(context):
-        try:
-            if int(item.get("exam_index") or 0) == int(exam_index):
-                return item
-        except (TypeError, ValueError):
-            continue
-    return {}
-
-
-def _payload_wants_mock_numbered_explain(payload: str) -> bool:
-    numbers = _extract_mock_question_numbers(payload)
-    if not numbers:
-        return False
-    text = _normalize_lookup_text(payload)
-    return any(keyword in text for keyword in ("해설", "풀이", "설명", "복기", "왜", "정답", "오답"))
-
-
-def _build_mock_numbered_leg_reply(context: Dict[str, Any], payload_raw: str) -> Optional[Dict[str, Any]]:
-    if not _payload_wants_mock_numbered_explain(payload_raw):
-        return None
-
-    numbers = _extract_mock_question_numbers(payload_raw)
-    focus_rows: List[tuple[int, Dict[str, Any]]] = []
-    missing: List[int] = []
-    for num in numbers[:3]:
-        row = _mock_find_question(context, num)
-        if row:
-            focus_rows.append((num, row))
-        else:
-            missing.append(num)
-
-    if not focus_rows:
-        return {
-            "ok": True,
-            "assistant_message": "요청한 문항 번호를 현재 모의고사 기록에서 찾지 못했어요. 번호를 다시 확인해 주세요.",
-            "route": "mock-exam>numbered-leg:not-found",
-        }
-
-    exam_items: List[ExamItem] = []
-    valid_rows: List[tuple[int, Dict[str, Any]]] = []
-    for num, row in focus_rows:
-        question = str(row.get("question") or "").strip()
-        options = [str(opt or "").strip() for opt in (row.get("options") or [])][:4]
-        if not question or len(options) != 4 or any(not opt for opt in options):
-            continue
-
-        try:
-            selected_index = int(row.get("selected_index")) if row.get("selected_index") is not None else None
-        except (TypeError, ValueError):
-            selected_index = None
-        try:
-            correct_index = int(row.get("correct_index")) if row.get("correct_index") is not None else None
-        except (TypeError, ValueError):
-            correct_index = None
-
-        def _choice_text(idx: Optional[int]) -> str:
-            if idx is None or idx < 1 or idx > 4:
-                return "-"
-            return f"{idx}) {options[idx - 1]}"
-
-        item = ExamItem(
-            q=question,
-            opts=", ".join(f"{idx + 1}) {opt}" for idx, opt in enumerate(options)),
-            wrong=(_choice_text(selected_index) if selected_index is not None else "미응답"),
-            ans=_choice_text(correct_index),
-            user_message=(
-                f"모의고사 {num}번 문항 해설 요청입니다. "
-                "정답 근거와 오답 포인트를 초보자도 이해하기 쉽게 설명해 주세요."
-            ),
-            ontology_subject=str(row.get("ontology_subject") or "").strip() or None,
-            ontology_chapter=str(row.get("ontology_chapter") or "").strip() or None,
-            ontology_concept=str(row.get("ontology_concept") or "").strip() or None,
-        )
-        exam_items.append(item)
-        valid_rows.append((num, row))
-
-    if not exam_items:
-        return {
-            "ok": True,
-            "assistant_message": "요청한 번호의 문제 데이터가 불완전해서 해설을 만들 수 없었어요. 다른 번호로 다시 요청해 주세요.",
-            "route": "mock-exam>numbered-leg:invalid-item",
-        }
-
-    sections: List[str] = []
-    leg_reports: List[Dict[str, Any]] = []
-    try:
-        with _rag_solve_semaphore:
-            solved = solve_items(exam_items, force_rebuild=False)
-        for (num, row), solved_row in zip(valid_rows, solved):
-            selected = row.get("selected_index")
-            correct = row.get("correct_index")
-            sections.append(
-                f"[{num}번 문제] 내선택 {selected if selected is not None else '미응답'} / 정답 {correct if correct is not None else '-'}"
-            )
-            sections.append(format_leg_report_for_chat(solved_row.report))
-            leg_reports.append(
-                {
-                    "exam_index": num,
-                    "report": solved_row.report,
-                    "evidence": [item.model_dump() for item in solved_row.evidence],
-                }
-            )
-    except Exception:
-        for num, row in valid_rows:
-            selected = row.get("selected_index")
-            correct = row.get("correct_index")
-            sections.append(
-                f"[{num}번 문제] 내선택 {selected if selected is not None else '미응답'} / 정답 {correct if correct is not None else '-'}"
-            )
-            sections.append("해설 생성 중 오류가 발생했습니다. 해당 번호로 다시 요청해 주세요.")
-
-    if missing:
-        sections.append(f"참고: {', '.join(f'{n}번' for n in missing)}은(는) 현재 모의고사 기록에서 찾지 못했어요.")
-
-    out: Dict[str, Any] = {
-        "ok": True,
-        "assistant_message": "\n\n".join(sections).strip(),
-        "route": "mock-exam>numbered-leg",
-    }
-    if len(leg_reports) == 1:
-        out["leg"] = {
-            "report": leg_reports[0]["report"],
-            "evidence": leg_reports[0]["evidence"],
-        }
-    elif leg_reports:
-        out["legs"] = leg_reports
-    return out
-
-
-def _mock_wrong_questions(context: Dict[str, Any], subject_prefix: str = "") -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
-    for item in _mock_context_questions(context):
-        if bool(item.get("is_correct")):
-            continue
-        subject = str(item.get("subject") or "")
-        if subject_prefix and not subject.startswith(subject_prefix):
-            continue
-        out.append(item)
-    return out
-
-
-def _payload_wants_question_search(payload: str) -> bool:
-    normalized = _normalize_lookup_text(payload)
-    if not normalized:
-        return False
-    compact = normalized.replace(" ", "")
-    return any(
-        _normalize_lookup_text(keyword) in normalized
-        or _normalize_lookup_text(keyword).replace(" ", "") in compact
-        for keyword in QUESTION_SEARCH_KEYWORDS
-    )
-
-
-def _build_mock_exam_context_for_leg(context: Dict[str, Any], payload_raw: str) -> str:
-    subject_stats = context.get("subject_stats") or {}
-    wrong_items = _mock_wrong_questions(context)
-    numbers = _extract_mock_question_numbers(payload_raw)
-    focused = [_mock_find_question(context, num) for num in numbers[:3]]
-    focused = [item for item in focused if item]
-
-    lines = [
-        f"점수: {int(context.get('score') or 0)}",
-        f"정답: {int(context.get('correct_count') or 0)}/{int(context.get('total_questions') or 0)}",
-        f"소요시간(초): {int(context.get('duration_sec') or 0)}",
-        f"오답수: {len(wrong_items)}",
-        "과목별 통계:",
-    ]
-    if isinstance(subject_stats, dict):
-        for subject_name, stat in subject_stats.items():
-            total = int((stat or {}).get("total") or 0)
-            correct = int((stat or {}).get("correct") or 0)
-            acc = int(round((correct / max(1, total)) * 100))
-            lines.append(f"- {subject_name}: {correct}/{total} ({acc}%)")
-
-    lines.append("오답 문항 요약:")
-    for item in wrong_items[:40]:
-        lines.append(
-            "- "
-            f"{int(item.get('exam_index') or 0)}번 | {str(item.get('subject') or '')} | "
-            f"내선택 {item.get('selected_index') or '미응답'} | 정답 {item.get('correct_index') or '-'} | "
-            f"개념 {str(item.get('ontology_concept') or item.get('ontology_chapter') or '없음')}"
-        )
-
-    if focused:
-        lines.append("사용자가 직접 지정한 문항 상세:")
-        for item in focused:
-            options = item.get("options") or []
-            option_text = " | ".join(f"{idx + 1}) {str(opt)}" for idx, opt in enumerate(options[:4]))
-            lines.append(
-                "- "
-                f"{int(item.get('exam_index') or 0)}번 문제: {str(item.get('question') or '')}\n"
-                f"  보기: {option_text}\n"
-                f"  내선택 {item.get('selected_index') or '미응답'} / 정답 {item.get('correct_index') or '-'}"
-            )
-
-    return "\n".join(lines)
-
-
-def _build_mock_exam_leg_reply(context: Dict[str, Any], payload_raw: str, history: List[Dict[str, str]]) -> str:
-    history_lines: List[str] = []
-    for message in history[-6:]:
-        role = str(message.get("role", "user") or "user").strip()
-        content = str(message.get("content", "") or "").strip()
-        if content:
-            history_lines.append(f"[{role}] {content[:700]}")
-    history_text = "\n".join(history_lines) if history_lines else "-"
-    context_text = _build_mock_exam_context_for_leg(context, payload_raw)
-
-    prompt = (
-        "당신은 네트워크관리사 2급 모의고사 전용 코치입니다.\n"
-        "사용자 질문을 그대로 해결하세요. 질문이 특정 요청이면 그 요청부터 답하고, 필요할 때만 요약을 덧붙이세요.\n"
-        "항상 한국어로 답하세요.\n"
-        "같은 개요 문장을 반복하지 마세요.\n"
-        "사용자가 '중복/빈출 개념 정리'를 묻는 경우, 개념별 빈도와 해당 문항 번호를 우선 정리하세요.\n"
-        "사용자가 여러 요구(예: 해설 + 유사문제)를 한 번에 말하면 둘 다 답하세요.\n"
-        "모르는 내용은 추측하지 말고 현재 모의고사 정보 범위에서 답하세요.\n\n"
-        f"[이전 대화]\n{history_text}\n\n"
-        f"[모의고사 컨텍스트]\n{context_text}\n\n"
-        f"[사용자 질문]\n{payload_raw}\n"
-    )
-
-    llm = ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_HOST,
-        temperature=0,
-        num_predict=min(settings.OLLAMA_SOLVE_NUM_PREDICT, 1800),
-    )
-    reply = str(llm.invoke(prompt, think=False).content or "").strip()
-    return reply
-
-
-def _build_mock_exam_overview(context: Dict[str, Any]) -> str:
-    score = int(context.get("score") or 0)
-    correct_count = int(context.get("correct_count") or 0)
-    total_questions = int(context.get("total_questions") or 0)
-    duration_sec = int(context.get("duration_sec") or 0)
-    subject_stats = context.get("subject_stats") or {}
-
-    ranked = []
-    if isinstance(subject_stats, dict):
-        for subject_name, stat in subject_stats.items():
-            total = int((stat or {}).get("total") or 0)
-            correct = int((stat or {}).get("correct") or 0)
-            accuracy = int(round((correct / max(1, total)) * 100))
-            ranked.append((str(subject_name), correct, total, accuracy))
-    ranked.sort(key=lambda item: (item[3], item[0]))
-
-    lines = [
-        f"이번 모의고사 점수는 {score}점이고, 전체 {total_questions}문제 중 {correct_count}문제를 맞혔어요.",
-        f"소요 시간은 {duration_sec}초였고, 취약 과목부터 보면 {', '.join(f'{subject} {accuracy}%' for subject, _, _, accuracy in ranked[:3]) or '데이터 없음'} 순서예요.",
-    ]
-    wrong_items = _mock_wrong_questions(context)
-    if wrong_items:
-        numbers = ", ".join(f"{int(item.get('exam_index') or 0)}번" for item in wrong_items[:8])
-        lines.append(f"틀린 문제는 현재 {len(wrong_items)}개고, 대표적으로 {numbers} 같은 문항들이 있어요.")
-    lines.append("원하면 '몇 번 문제 분석해줘', '몇 번 몇 번 틀렸어?', '1과목에서 틀린 개념만 뽑아줘'처럼 바로 이어서 질문하면 됩니다.")
-    return "\n".join(lines)
-
-
-def _mock_top_concepts(context: Dict[str, Any], limit: int = 5) -> List[str]:
-    counts: Dict[str, int] = {}
-    for item in _mock_wrong_questions(context):
-        key = str(item.get("ontology_concept") or item.get("ontology_chapter") or "").strip()
-        if not key:
-            continue
-        counts[key] = counts.get(key, 0) + 1
-    ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
-    return [name for name, _ in ranked[: max(1, limit)]]
-
-
-def _mock_find_questions_by_term(context: Dict[str, Any], term: str) -> List[Dict[str, Any]]:
-    nterm = _normalize_lookup_text(term).replace(" ", "")
-    if not nterm:
-        return []
-    matches: List[Dict[str, Any]] = []
-    for item in _mock_context_questions(context):
-        haystack = " ".join(
-            [
-                str(item.get("question") or ""),
-                str(item.get("subject") or ""),
-                str(item.get("ontology_subject") or ""),
-                str(item.get("ontology_chapter") or ""),
-                str(item.get("ontology_concept") or ""),
-            ]
-        )
-        nhay = _normalize_lookup_text(haystack).replace(" ", "")
-        if nterm in nhay:
-            matches.append(item)
-    return matches
-
-
-def _extract_mock_related_search_hint(payload_raw: str) -> str:
-    text = str(payload_raw or "")
-    if not text:
-        return ""
-    acronym_match = re.search(r"\b[A-Z]{2,}(?:/[A-Z0-9]{2,})*\b", text)
-    if acronym_match:
-        return str(acronym_match.group(0)).strip()
-    tokens = [token.strip() for token in re.split(r"[^0-9A-Za-z가-힣]+", text) if token.strip()]
-    for token in tokens:
-        if token in {"모의고사", "문제", "관련", "유사문제", "찾아줘", "찾아", "뽑아줘", "보여줘", "개념", "설명", "해설", "확인"}:
-            continue
-        if len(token) >= 2:
-            return token
-    return ""
-
-
 async def _handle_mock_exam_analysis(payload_raw: str, history: List[Dict[str, str]], analysis: Any | None = None) -> Optional[Dict[str, Any]]:
     context = _extract_mock_exam_context(payload_raw, history)
     if not context:
@@ -2091,7 +1127,11 @@ async def _handle_mock_exam_analysis(payload_raw: str, history: List[Dict[str, s
     if not wants_analysis:
         return None
 
-    numbered_leg = _build_mock_numbered_leg_reply(context, payload_raw)
+    numbered_leg = _build_mock_numbered_leg_reply(
+        context=context,
+        payload_raw=payload_raw,
+        rag_solve_semaphore=_rag_solve_semaphore,
+    )
     if numbered_leg is not None:
         numbered_leg["mock_summary"] = {
             "wrong_count": len(_mock_wrong_questions(context)),
@@ -2147,6 +1187,7 @@ async def _handle_mock_exam_analysis(payload_raw: str, history: List[Dict[str, s
                 search_query=search_hint,
             )
             questions = await _find_related_questions(
+                database_url=DATABASE_URL,
                 payload=payload_raw,
                 analysis=search_analysis,
                 limit=_extract_requested_question_count(payload_raw),

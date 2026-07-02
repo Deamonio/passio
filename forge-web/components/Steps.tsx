@@ -10,7 +10,7 @@ export function Steps() {
           Pass in <em style={{fontStyle: 'normal', color: 'var(--red)'}}>3 steps</em>
         </h2>
         <p className="section-desc" style={{fontSize: 16, color: 'var(--text-3)', lineHeight: 1.7, maxWidth: 480, marginTop: 14}}>
-          Forge AI Tutor helps with concept clarity, mistake analysis, and exam readiness in one flow.
+          VeriTutor AI Tutor helps with concept clarity, mistake analysis, and exam readiness in one flow.
         </p>
       </div>
       <div className="steps" style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 24}}>

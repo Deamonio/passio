@@ -32,7 +32,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Forge',
+  title: 'VeriTutor',
   description: 'AI-powered IT certification learning tutor',
   icons: {
     icon: '/icon.svg',

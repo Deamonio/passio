@@ -32,7 +32,7 @@ type AdminConversation = {
   updatedAt?: string;
 };
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
 
 function toTableRows(input: unknown, parent = ""): Array<{ key: string; value: string }> {
   if (input === null || input === undefined) return [{ key: parent || "value", value: String(input) }];

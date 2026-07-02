@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nav } from "../../../components/Nav";
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
-const CHAT_HANDOFF_KEY = "forge-chat-handoff-v1";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
+const CHAT_HANDOFF_KEY = "veritutor-chat-handoff-v1";
 
 type MockAttemptListItem = {
   attempt_id: number;

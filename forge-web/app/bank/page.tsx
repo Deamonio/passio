@@ -16,8 +16,8 @@ type BankQuestion = {
   relevance?: number;
 };
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
-const CHAT_HANDOFF_KEY = "forge-chat-handoff-v1";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
+const CHAT_HANDOFF_KEY = "veritutor-chat-handoff-v1";
 
 const SUBJECT_OPTIONS = ["", "1과목", "2과목", "3과목", "4과목"];
 const PAGE_SIZE = 20;

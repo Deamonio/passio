@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 type UserStore = Record<string, { password: string; createdAt: string }>;
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
-const AUTH_USERS_KEY = "forge-auth-users-v1";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
+const AUTH_USERS_KEY = "veritutor-auth-users-v1";
 const DEFAULT_SEED_USER = {
   username: "cortie",
   password: "kkh^^4289c3",
@@ -104,7 +104,7 @@ export default function LoginPage() {
   return (
     <main className="forge-login-shell">
       <section className="forge-login-card">
-        <p className="forge-login-kicker">Forge</p>
+        <p className="forge-login-kicker">VeriTutor</p>
         <h1 className="forge-login-title">{mode === "login" ? "Login" : "Sign Up"}</h1>
         <p className="forge-login-subtitle">Chat history is stored per signed-in account.</p>
 

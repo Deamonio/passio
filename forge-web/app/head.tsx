@@ -1,9 +1,9 @@
 export default function Head() {
   return (
     <>
-      <title>FORGE | Enterprise Raycast UI</title>
+      <title>VeriTutor | AI Certification Tutor</title>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta name="description" content="Minimal, high-end Next.js app inspired by Raycast UI." />
+      <meta name="description" content="VeriTutor helps you prepare for IT certification exams with AI-powered guidance." />
       <link rel="icon" href="/favicon.ico" />
     </>
   );

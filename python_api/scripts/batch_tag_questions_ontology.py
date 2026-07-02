@@ -148,7 +148,7 @@ async def _tag_one(
 async def _async_main(args: argparse.Namespace) -> None:
     dsn = os.getenv(
         "DATABASE_URL",
-        "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/sikdorak",
+        "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/veritutor",
     )
     engine = ForgeOntologyEngine()
 

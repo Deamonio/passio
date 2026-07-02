@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
 
 type NavProps = {
   certIcon?: string;
@@ -39,8 +39,8 @@ export function Nav({ convTitle }: NavProps) {
     <nav className={`forge-nav${isChatRoute ? " chat-mode" : ""}`}>
       <div className="forge-nav-left">
         <a className="nav-logo" href={isChatRoute ? "/" : "#"}>
-          <img src="/icon.svg" alt="Forge" className="logo-mark" width="28" height="28" />
-          <span className="nav-logo-text">Forge</span>
+          <img src="/icon.svg" alt="VeriTutor" className="logo-mark" width="28" height="28" />
+          <span className="nav-logo-text">VeriTutor</span>
         </a>
       </div>
 

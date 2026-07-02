@@ -16,7 +16,7 @@ export function Testimonial() {
             {Array(5).fill(0).map((_, i) => <span key={i} className="tcard-star" style={{color: 'var(--yellow)', fontSize: 13}}>★</span>)}
           </div>
           <p className="tcard-text" style={{fontSize: 14, color: 'var(--text-2)', lineHeight: 1.75, marginBottom: 20, fontStyle: 'italic'}}>
-            I failed Engineer Information Processing three times. After studying with Forge, I finally passed. AI showed my error patterns and made my focus crystal clear.
+            I failed Engineer Information Processing three times. After studying with VeriTutor, I finally passed. AI showed my error patterns and made my focus crystal clear.
           </p>
           <div className="tcard-author" style={{display: 'flex', alignItems: 'center', gap: 10}}>
             <div className="tcard-avatar" style={{width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg,#3a6dff,#7c9fff)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white', flexShrink: 0}}>K</div>

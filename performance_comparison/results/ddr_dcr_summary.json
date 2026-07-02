@@ -1,0 +1,22 @@
+{
+  "mode": "answer",
+  "target": "results/full_pipeline_evaluated_judge.csv",
+  "target_summary": {
+    "total": 120,
+    "defects": 34,
+    "ddr": 0.2833333333333333
+  },
+  "baseline": "results/gemma_only_evaluated_judge.csv",
+  "baseline_summary": {
+    "total": 120,
+    "defects": 31,
+    "ddr": 0.25833333333333336
+  },
+  "dcr_summary": {
+    "aligned_samples": 120,
+    "baseline_defects": 31,
+    "corrected": 8,
+    "regressed": 11,
+    "dcr": 0.25806451612903225
+  }
+}

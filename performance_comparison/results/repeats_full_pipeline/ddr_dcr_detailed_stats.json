@@ -1,0 +1,132 @@
+{
+  "test_metadata": {
+    "pipeline": "Full Pipeline (Ontology + RAG + Explanation)",
+    "test_date": "2026-05-12",
+    "total_questions": 120,
+    "total_runs": 10,
+    "total_executions": 1200
+  },
+  "ddr_dcr_metrics": {
+    "aligned_samples": 120,
+    "runs": 10,
+    "consistent": 120,
+    "changed": 0,
+    "empty_answer_cases": 0,
+    "ddr": 1.0,
+    "dcr": 0.0
+  },
+  "per_run_statistics": [
+    {
+      "run_number": 1,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 5.5,
+      "max_latency_sec": 88.25,
+      "avg_latency_sec": 35.53,
+      "total_time_sec": 4264.0
+    },
+    {
+      "run_number": 2,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.78,
+      "max_latency_sec": 35.31,
+      "avg_latency_sec": 7.33,
+      "total_time_sec": 879.1
+    },
+    {
+      "run_number": 3,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.91,
+      "max_latency_sec": 23.04,
+      "avg_latency_sec": 6.85,
+      "total_time_sec": 821.8
+    },
+    {
+      "run_number": 4,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.76,
+      "max_latency_sec": 22.95,
+      "avg_latency_sec": 6.75,
+      "total_time_sec": 810.5
+    },
+    {
+      "run_number": 5,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.74,
+      "max_latency_sec": 22.82,
+      "avg_latency_sec": 6.65,
+      "total_time_sec": 798.2
+    },
+    {
+      "run_number": 6,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.74,
+      "max_latency_sec": 23.13,
+      "avg_latency_sec": 6.75,
+      "total_time_sec": 810.6
+    },
+    {
+      "run_number": 7,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.72,
+      "max_latency_sec": 22.87,
+      "avg_latency_sec": 6.69,
+      "total_time_sec": 802.3
+    },
+    {
+      "run_number": 8,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.77,
+      "max_latency_sec": 23.59,
+      "avg_latency_sec": 6.78,
+      "total_time_sec": 813.6
+    },
+    {
+      "run_number": 9,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.75,
+      "max_latency_sec": 22.86,
+      "avg_latency_sec": 6.76,
+      "total_time_sec": 811.1
+    },
+    {
+      "run_number": 10,
+      "total_questions": 120,
+      "correct_answers": 86,
+      "accuracy_percent": 71.67,
+      "min_latency_sec": 4.74,
+      "max_latency_sec": 25.04,
+      "avg_latency_sec": 6.68,
+      "total_time_sec": 801.9
+    }
+  ],
+  "summary": {
+    "overall_accuracy_percent": 71.67,
+    "accuracy_variance": 0.0,
+    "average_latency_per_question_sec": 9.68,
+    "total_execution_time_hours": 3.23,
+    "evaluation": {
+      "determinism": "Perfect",
+      "stability": "Excellent",
+      "performance": "Good (with caching)",
+      "production_ready": true
+    }
+  }
+}

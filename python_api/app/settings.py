@@ -16,7 +16,7 @@ class Settings:
     All fields are class variables for easy import and static access.
     """
     # General
-    SERVICE_NAME: str = os.getenv("SERVICE_NAME", "sikdorak-python-api")
+    SERVICE_NAME: str = os.getenv("SERVICE_NAME", "veritutor-python-api")
     DEBUG: bool = _to_bool(os.getenv("FASTAPI_DEBUG"), default=False)
 
     # RAG/LLM
@@ -55,7 +55,7 @@ class Settings:
     RAG_CONTEXT_CHAR_LIMIT: int = int(os.getenv("RAG_CONTEXT_CHAR_LIMIT", "12000"))
 
     # Paths
-    CHROMA_DB_DIR: str = os.getenv("CHROMA_DB_DIR", "/home/ubuntu/sikdorak/python_api/chroma_db")
+    CHROMA_DB_DIR: str = os.getenv("CHROMA_DB_DIR", "/home/ubuntu/forge/python_api/chroma_db")
     PDF_PATH: str = os.getenv("PDF_PATH", "/data/네트워크관리사.pdf")
     MD_PATH: str = os.getenv("MD_PATH", "/data/theory_only.md")
     CERT_NAME: str = os.getenv("CERT_NAME", "네트워크 관리사 2급")

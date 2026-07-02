@@ -89,7 +89,7 @@ class ForgeOntologyEngine:
 
     def _get_system_prompt(self) -> str:
         return f"""
-당신은 {self.cert_name} 교육 전문가이자 AI 학습 시스템 'Forge'의 통합 의도 및 지식 분석기입니다.
+당신은 {self.cert_name} 교육 전문가이자 AI 학습 시스템 'VeriTutor'의 통합 의도 및 지식 분석기입니다.
 사용자 발화를 시스템이 바로 실행 가능한 구조화 JSON으로 변환하세요.
 
 [MISSION]
@@ -119,6 +119,29 @@ class ForgeOntologyEngine:
 - SYSTEM_CONTROL: 시스템 동작/설정/상태 제어 요청
 - MOCK_EXAM_ANALYZE: 모의고사 결과 통계/패턴 분석(오답 번호, 취약 과목, 과목별 정답률, 반복/최다빈출 개념 등)
 - ETC: AI 튜터의 핵심 목적과 직접 연결되지 않는 일반 대화, 잡담, 인사, 또는 어느 intent에도 선명하게 속하지 않는 요청
+
+[SEARCH_QUERY 생성 규칙 · 매우 중요]
+- search_query는 RAG 검색용 질의문 1개만 작성하세요(문장 1~2개, 불필요한 설명 금지).
+- search_query에는 가능하면 다음을 포함하세요:
+    1) 핵심 개념(entities의 상위 1~3개)
+    2) 온톨로지 좌표에서 확정된 subject/chapter/concept
+    3) 사용자가 요구한 작업 목적(설명/해설/비교/원인 분석)
+- FOLLOWUP이면 직전 대화의 핵심 개념을 유지한 상태로 search_query를 보강하세요.
+
+- CONCEPT_EXPLAIN일 때:
+    - 사용자 질문이 일반 개념 요청이면, "개념 정의 + 동작 원리 + 혼동 포인트" 중심으로 검색어를 구성하세요.
+    - 사용자 입력에 문제 문장/보기/정답/오답 정보가 포함되어 있으면, 해당 문제의 핵심 토큰을 우선 추출해 search_query 앞부분에 배치하세요.
+
+- EXPLAIN_PROBLEM일 때:
+    - 문제 본문/보기/정답·오답 단서를 최대한 보존해 핵심 키워드로 압축한 search_query를 작성하세요.
+    - 단순 개념명만 쓰지 말고, 문제에서 요구한 판단 기준(예: 프로토콜 구분, 계산 조건, 오답 이유)을 포함하세요.
+
+- QUESTION_SEARCH일 때:
+    - "유사문제/기출문제/연습문제" 의도를 search_query에 명시하고, 범위를 좁히는 개념 토큰을 함께 넣으세요.
+
+- 금지 사항:
+    - "잘 모르겠음", "질문이 모호함" 같은 메타 문구를 search_query에 넣지 마세요.
+    - JSON/코드블록/따옴표 래핑 없이 평문 문자열로만 작성하세요.
 
 [복수 intent 순서 규칙]
 - 요청이 2개 이상이면 intent_sequence에 실행 순서를 반드시 명시하세요.
@@ -270,7 +293,7 @@ class ForgeOntologyEngine:
         selected = [c for s, c in scored if s > 0]
         return self._dedupe_coords(selected)
 
-    def _normalize_to_raw_structure(self, data: Dict, payload: str) -> Dict:
+    def _normalize_to_raw_struccture(self, data: Dict, payload: str) -> Dict:
         candidates: List[Coordinate] = []
         raw_coord = data.get("coordinate")
         if isinstance(raw_coord, dict):

@@ -54,8 +54,8 @@ type SubjectStatRow = {
   accuracy: number;
 };
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
-const CHAT_HANDOFF_KEY = "forge-chat-handoff-v1";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
+const CHAT_HANDOFF_KEY = "veritutor-chat-handoff-v1";
 const DEFAULT_SUBJECT_COUNTS: Record<string, number> = {
   "1과목": 17,
   "2과목": 18,

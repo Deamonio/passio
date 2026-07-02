@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/sikdorak",
+    "postgresql://sikdorak_app:sikdorak_password@127.0.0.1:5432/veritutor",
 )
 
 SOURCE_HEADERS = ["과목", "문제", "보기1", "보기2", "보기3", "보기4", "답"]

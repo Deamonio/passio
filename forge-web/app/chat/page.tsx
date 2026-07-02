@@ -132,9 +132,9 @@ type CertTrack = {
   disabled?: boolean;
 };
 
-const AUTH_SESSION_KEY = "forge-auth-session-user";
-const CHAT_STORE_KEY = "forge-chat-store-v1";
-const CHAT_HANDOFF_KEY = "forge-chat-handoff-v1";
+const AUTH_SESSION_KEY = "veritutor-auth-session-user";
+const CHAT_STORE_KEY = "veritutor-chat-store-v1";
+const CHAT_HANDOFF_KEY = "veritutor-chat-handoff-v1";
 const QUESTION_TRIGGER = "/question";
 const MOCK_EXAM_CONTEXT_START = "[FORGE_MOCK_EXAM_CONTEXT]";
 const MOCK_EXAM_CONTEXT_END = "[/FORGE_MOCK_EXAM_CONTEXT]";
@@ -148,7 +148,7 @@ const MOCK_EXAM_REQUEST_PATTERNS: RegExp[] = [
 ];
 
 const INTRO_MESSAGE =
-  "안녕하세요. 저는 Forge AI Tutor예요. 자격증 공부를 하다가 막히는 개념이 있거나, 문제를 풀었는데 왜 맞고 왜 틀렸는지 헷갈릴 때 편하게 물어보시면 돼요. 어려운 내용을 처음 배우는 사람도 이해할 수 있게 차근차근 설명해 드리고, 필요한 경우에는 이전에 나눈 대화까지 이어서 생각하면서 도와드려요. 꼭 딱딱한 공부 질문이 아니어도 괜찮아요. 지금 궁금한 내용을 자연스럽게 보내 주시면, 상황에 맞게 쉽게 안내해 드릴게요.";
+  "안녕하세요. 저는 VeriTutor AI Tutor예요. 자격증 공부를 하다가 막히는 개념이 있거나, 문제를 풀었는데 왜 맞고 왜 틀렸는지 헷갈릴 때 편하게 물어보시면 돼요. 어려운 내용을 처음 배우는 사람도 이해할 수 있게 차근차근 설명해 드리고, 필요한 경우에는 이전에 나눈 대화까지 이어서 생각하면서 도와드려요. 꼭 딱딱한 공부 질문이 아니어도 괜찮아요. 지금 궁금한 내용을 자연스럽게 보내 주시면, 상황에 맞게 쉽게 안내해 드릴게요.";
 
 const CERT_TRACKS: CertTrack[] = [
   { id: "network-admin-2", label: "Network Manager Level 2", icon: "📡", badge: "HOT" },

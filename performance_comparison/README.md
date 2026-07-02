@@ -94,3 +94,38 @@ python3 run_all.py --input sample_120_questions.csv --require-judge 0
 - `evaluation.py`: 실험 결과 평가
 - `performance_analysis.py`: 요약표/그래프/리포트 생성
 - `results/`: 결과 CSV, 그래프, 리포트
+
+## DDR/DCR Test
+
+권장 정의(반복 실행 테스트):
+
+- `DDR (Deterministic/Decision Reproducibility Rate)`: 동일 문항을 여러 번 실행했을 때 답변이 일관되게 동일한 비율
+- `DCR (Decision Change Rate)`: 동일 문항 반복 실행에서 답변이 바뀐 비율 (`DCR = 1 - DDR`)
+
+레거시(결함 기반) 모드도 지원:
+
+- `metric-mode=defect`에서 기존 방식의 `DDR(결함률)`/`DCR(결함개선률)` 계산
+
+스크립트:
+
+- `ddr_dcr_test.py`
+
+실행 예시:
+
+```bash
+cd /home/ubuntu/forge/performance_comparison
+
+# 권장 모드(consistency): 반복 실행 결과로 DDR/DCR 계산
+python3 ddr_dcr_test.py \
+	--metric-mode consistency \
+	--runs results/full_pipeline_evaluated_judge.csv results/gemma_only_evaluated_judge.csv \
+	--answer-column AI_정답 \
+	--output-json results/ddr_dcr_summary.json
+
+# 레거시 모드(defect): 정답/환각/형식/LLM 점수 게이트 기준 결함
+python3 ddr_dcr_test.py \
+	--metric-mode defect \
+	--mode quality \
+	--target results/full_pipeline_evaluated_judge.csv \
+	--baseline results/gemma_only_evaluated_judge.csv
+```

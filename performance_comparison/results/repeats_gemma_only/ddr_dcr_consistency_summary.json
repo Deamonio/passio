@@ -1,0 +1,26 @@
+{
+  "metric_mode": "consistency",
+  "runs": [
+    "results/repeats_gemma_only/gemma_only_run_01.csv",
+    "results/repeats_gemma_only/gemma_only_run_02.csv",
+    "results/repeats_gemma_only/gemma_only_run_03.csv",
+    "results/repeats_gemma_only/gemma_only_run_04.csv",
+    "results/repeats_gemma_only/gemma_only_run_05.csv",
+    "results/repeats_gemma_only/gemma_only_run_06.csv",
+    "results/repeats_gemma_only/gemma_only_run_07.csv",
+    "results/repeats_gemma_only/gemma_only_run_08.csv",
+    "results/repeats_gemma_only/gemma_only_run_09.csv",
+    "results/repeats_gemma_only/gemma_only_run_10.csv"
+  ],
+  "id_column": "index",
+  "answer_column": "AI_정답",
+  "consistency_summary": {
+    "aligned_samples": 120,
+    "runs": 10,
+    "consistent": 120,
+    "changed": 0,
+    "empty_answer_cases": 0,
+    "ddr": 1.0,
+    "dcr": 0.0
+  }
+}
